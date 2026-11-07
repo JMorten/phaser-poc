@@ -30,10 +30,23 @@ const HIT_HALF_COS = 0.764;     // cosseno do meio-angulo (~40 graus): setor de 
 const PX_PER_UNIT = 64;         // 1 unidade do Blender ~= 64 px na tela
 const WALK_SPEED = WALK_SPEED_U * PX_PER_UNIT;   // ~139 px/s
 const DODGE_SPEED = (DODGE_DIST_U / DODGE_TIME) * PX_PER_UNIT; // ~853 px/s
+// Formata milissegundos como m:ss.cs (ex.: 1:05.42)
+function fmtTime(ms) {
+  const cs = Math.floor(ms / 10) % 100, s = Math.floor(ms / 1000) % 60, m = Math.floor(ms / 60000);
+  return `${m}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+}
 const WORLD_W = 2400;         // mapa maior (era 1600)
 const WORLD_H = 1800;         // (era 1200)
 const AGGRO_R = 420;          // px: inimigo patrulha ate o jogador estar a < 420 px
 const POTION_HEAL = 40;       // HP recuperado por pocao
+// Blocos de pedra [x, y, largura, altura] (centro). Evitam spawn do jogador, pocoes e inimigos.
+const OBSTACLES = [
+  [700, 900, 160, 60],
+  [1320, 470, 60, 220],
+  [1000, 1300, 220, 60],
+  [1750, 880, 80, 240],
+  [380, 420, 150, 60],
+];
 
 // Balanceamento (lote aprovado): dano/velocidade/cooldowns centralizados.
 const BK = {
@@ -94,6 +107,14 @@ class Arena extends Phaser.Scene {
     // Sombras dinamicas (abaixo dos personagens; redesenhadas a cada quadro)
     this.shadowFx = this.add.graphics().setDepth(0.5);
 
+    // Blocos de pedra colidiveis (bloqueiam jogador e inimigos). Fora das areas de spawn/pocao.
+    this.blocks = this.physics.add.staticGroup();
+    for (const [bx, by, bw, bh] of OBSTACLES) {
+      const r = this.add.rectangle(bx, by, bw, bh, 0x3a4450).setDepth(1).setStrokeStyle(3, 0x222a33);
+      this.physics.add.existing(r, true);
+      this.blocks.add(r);
+    }
+
     this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
 
     // Corpo fisico ancorado nos PES: sprite 256x256 em escala 0.5 (128 px de tela);
@@ -127,6 +148,14 @@ class Arena extends Phaser.Scene {
     for (let i = 0; i < this.enemies.length; i++)
       for (let j = i + 1; j < this.enemies.length; j++)
         this.physics.add.collider(this.enemies[i].s, this.enemies[j].s);
+    // Pedras bloqueiam jogador e inimigos
+    this.physics.add.collider(this.player, this.blocks);
+    for (const e of this.enemies) this.physics.add.collider(e.s, this.blocks);
+
+    // Contadores da partida (abates e tempo)
+    this.kills = 0;
+    this.startedAt = this.time.now;
+    this.elapsed = 0;
 
     // Pocao de vida (textura gerada em runtime; sem PNG novo).
     this.potions = [];
@@ -214,23 +243,42 @@ class Arena extends Phaser.Scene {
     // Ataque dos inimigos: por inimigo (ver update), sem timer global.
   }
 
+  // Texto flutuante (dano, etc.) que sobe e desaparece.
+  floatText(x, y, txt, color) {
+    const t = this.add.text(x, y - 20, txt, { fontSize: '18px', fontStyle: 'bold', color, stroke: '#000', strokeThickness: 4 })
+      .setOrigin(0.5).setDepth(12);
+    this.tweens.add({ targets: t, y: y - 60, alpha: 0, duration: 700, ease: 'Quad.easeOut', onComplete: () => t.destroy() });
+  }
+
+  // Faiscas simples no ponto de impacto.
+  sparks(x, y, color) {
+    for (let i = 0; i < 6; i++) {
+      const a = (Math.PI * 2 * i) / 6 + Math.random() * 0.5;
+      const p = this.add.rectangle(x, y, 5, 5, color).setDepth(6);
+      this.tweens.add({ targets: p, x: x + Math.cos(a) * 34, y: y + Math.sin(a) * 34, alpha: 0, duration: 360, onComplete: () => p.destroy() });
+    }
+  }
+
   hurtPlayer(dmg) {
     if (this.dodging || this.over) return;
     this.hp -= dmg;
+    this.floatText(this.player.x, this.player.y, `-${dmg}`, '#ff6b6b');
     this.cameras.main.shake(80, 0.003);
     if (this.hp <= 0) this.showEnd('DERROTA');
   }
 
-  showEnd(title) {
+  showEnd(title, sub) {
     if (this.over) return;
     this.over = true;
     this.player.setVelocity(0, 0);
     for (const e of this.enemies) e.s.setVelocity(0, 0);
     const cam = this.cameras.main;
     this.add.rectangle(0, 0, cam.width, cam.height, 0x000000, 0.7).setOrigin(0).setScrollFactor(0).setDepth(20);
-    this.add.text(cam.width / 2, cam.height / 2 - 30, title, { fontSize: '42px', color: '#ffffff' })
+    this.add.text(cam.width / 2, cam.height / 2 - 40, title, { fontSize: '42px', color: '#ffffff' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(21);
-    this.add.text(cam.width / 2, cam.height / 2 + 20, 'Toque ou aperte R para jogar novamente', { fontSize: '16px', color: '#cccccc' })
+    if (sub) this.add.text(cam.width / 2, cam.height / 2 + 6, sub, { fontSize: '18px', color: '#ffe08a' })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(21);
+    this.add.text(cam.width / 2, cam.height / 2 + 40, 'Toque ou aperte R para jogar novamente', { fontSize: '16px', color: '#cccccc' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(21);
     this.input.keyboard.on('keydown-R', () => this.scene.restart());
     this.input.once('pointerdown', () => this.scene.restart());
@@ -261,7 +309,15 @@ class Arena extends Phaser.Scene {
       const v = VEC[this.dir];
       this.player.setVelocity(v[0] * DODGE_SPEED, v[1] * DODGE_SPEED);
       this.player.play(`dodge${this.dir}`);
+      this.ghostAt = 0;
       this.time.delayedCall(DODGE_TIME * 1000, () => { this.dodging = false; this.player.setVelocity(0, 0); });
+    }
+    // Rastro fantasma durante a esquiva (um a cada ~45 ms).
+    if (this.dodging && time - (this.ghostAt || 0) > 45) {
+      this.ghostAt = time;
+      const gh = this.add.sprite(this.player.x, this.player.y, this.player.texture.key, this.player.frame.name)
+        .setScale(0.5).setTint(0x66ccff).setAlpha(0.45).setDepth(1.5);
+      this.tweens.add({ targets: gh, alpha: 0, duration: 260, onComplete: () => gh.destroy() });
     }
 
     if (!this.dodging) {
@@ -310,8 +366,13 @@ class Arena extends Phaser.Scene {
         if (!facing) continue;
         e.hp -= BK.atkDmg;
         e.barFg.setScale(Math.max(0, e.hp) / e.maxHp, 1);
+        this.floatText(e.s.x, e.s.y, `-${BK.atkDmg}`, '#ffe08a');
+        this.sparks(e.s.x, e.s.y, 0xffe08a);
         // Flash branco de impacto (restaura o tint original; morte vira alpha).
-        if (e.hp <= 0) { e.s.setVelocity(0, 0); e.s.clearTint(); e.s.setAlpha(0.35); }
+        if (e.hp <= 0) {
+          e.s.setVelocity(0, 0); e.s.clearTint(); e.s.setAlpha(0.35);
+          if (!e.dead) { e.dead = true; this.kills++; }
+        }
         else {
           e.s.setTintFill(0xffffff);
           this.time.delayedCall(80, () => { if (e.hp > 0) e.s.setTint(e.tint); });
@@ -410,13 +471,19 @@ class Arena extends Phaser.Scene {
       }
     }
 
-    // Vitoria: todos os inimigos derrotados.
-    if (this.enemies.every((e) => e.hp <= 0)) { this.showEnd('VITÓRIA!'); return; }
+    // Vitoria: todos os inimigos derrotados. Tempo registrado e recorde salvo.
+    if (this.enemies.every((e) => e.hp <= 0)) {
+      this.elapsed = this.time.now - this.startedAt;
+      const best = Number(localStorage.getItem('pocBestMs')) || 0;
+      if (!best || this.elapsed < best) localStorage.setItem('pocBestMs', String(Math.round(this.elapsed)));
+      this.showEnd('VITÓRIA!', `Tempo ${fmtTime(this.elapsed)} · Recorde ${fmtTime(!best || this.elapsed < best ? this.elapsed : best)}`);
+      return;
+    }
 
     // HUD: escreve no DOM apenas quando muda (evita layout/repaint a 60 fps).
-    const eTotal = this.enemies.reduce((sum, e) => sum + Math.max(0, e.hp), 0);
+    this.elapsed = this.time.now - this.startedAt;
     const hpTxt = `Mago HP ${Math.max(0, this.hp)}`;
-    const ehpTxt = `Inimigos HP ${eTotal} · Poções ${this.potions.length}`;
+    const ehpTxt = `Abates ${this.kills}/${this.enemies.length} · ${fmtTime(this.elapsed)} · Poções ${this.potions.length}`;
     const dodgePct = Math.round((1 - this.dodgeCd / 0.8) * 100);
     if (this._hud.hp !== this.hp) { this._hud.hp = this.hp; document.getElementById('hp').textContent = hpTxt; }
     if (this._hud.ehp !== ehpTxt) { this._hud.ehp = ehpTxt; document.getElementById('ehp').textContent = ehpTxt; }
