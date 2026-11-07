@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0c0e11">
+<link rel="icon" href="data:,">
+<title>A Última Lua — POC Action RPG</title>
+<style>
+  html,body{margin:0;height:100%;background:#0c0e11;overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+  body{position:fixed;inset:0;touch-action:none}
+  #app{width:100%;height:100%;touch-action:none}
+  #hud{position:fixed;left:10px;top:calc(10px + env(safe-area-inset-top, 0px));color:#ddd;font:14px/1.5 system-ui;z-index:5;pointer-events:none;text-shadow:0 1px 3px #000}
+  #dodgeBar{width:120px;height:8px;background:#333;border-radius:4px;margin-top:4px}
+  #dodgeFill{height:100%;background:#6ac; border-radius:4px;width:100%}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="hud"><div id="hp"></div><div id="ehp"></div><div id="dodgeBar"><div id="dodgeFill"></div></div></div>
+<script src="vendor/phaser.min.js"></script>
+<script src="src/main.js"></script>
+</body>
+</html>
