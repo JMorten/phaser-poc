@@ -66,12 +66,33 @@ class Arena extends Phaser.Scene {
   }
 
   create() {
-    // Fundo: chao escuro com grade sutil (sem arte nova)
-    const g = this.add.graphics();
-    g.fillStyle(0x14181c).fillRect(0, 0, WORLD_W, WORLD_H);
-    g.lineStyle(1, 0x1e242b);
-    for (let x = 0; x <= WORLD_W; x += 64) g.lineBetween(x, 0, x, WORLD_H);
-    for (let y = 0; y <= WORLD_H; y += 64) g.lineBetween(0, y, WORLD_W, y);
+    // Fundo: textura de chao gerada em runtime (CanvasTexture; sem PNG novo).
+    const ct = this.textures.createCanvas('ground', 256, 256);
+    const c = ct.context;
+    c.fillStyle = '#171c22'; c.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 900; i++) { // ruido fino (granulos)
+      const a = 0.03 + Math.random() * 0.09;
+      c.fillStyle = Math.random() < 0.5 ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a + 0.05})`;
+      c.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+    }
+    for (let i = 0; i < 40; i++) { // mottling amplo (variacao tonal)
+      const r = 20 + Math.random() * 40;
+      c.fillStyle = `rgba(255,255,255,${Math.random() * 0.03})`;
+      c.beginPath(); c.arc(Math.random() * 256, Math.random() * 256, r, 0, Math.PI * 2); c.fill();
+    }
+    ct.refresh();
+    this.add.tileSprite(0, 0, WORLD_W, WORLD_H, 'ground').setOrigin(0).setDepth(0);
+
+    // Pedras decorativas (sem colisao; textura do chao via elipses)
+    for (let i = 0; i < 36; i++) {
+      const sx = 60 + Math.random() * (WORLD_W - 120), sy = 60 + Math.random() * (WORLD_H - 120);
+      const sw = 18 + Math.random() * 34, sh = 8 + Math.random() * 12;
+      this.add.ellipse(sx, sy, sw, sh, 0x2a323d, 0.55).setDepth(0);
+      this.add.ellipse(sx - sw * 0.12, sy - sh * 0.18, sw * 0.6, sh * 0.45, 0x38424f, 0.5).setDepth(0);
+    }
+
+    // Sombras dinamicas (abaixo dos personagens; redesenhadas a cada quadro)
+    this.shadowFx = this.add.graphics().setDepth(0.5);
 
     this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
 
@@ -289,7 +310,12 @@ class Arena extends Phaser.Scene {
         if (!facing) continue;
         e.hp -= BK.atkDmg;
         e.barFg.setScale(Math.max(0, e.hp) / e.maxHp, 1);
+        // Flash branco de impacto (restaura o tint original; morte vira alpha).
         if (e.hp <= 0) { e.s.setVelocity(0, 0); e.s.clearTint(); e.s.setAlpha(0.35); }
+        else {
+          e.s.setTintFill(0xffffff);
+          this.time.delayedCall(80, () => { if (e.hp > 0) e.s.setTint(e.tint); });
+        }
         this.cameras.main.shake(60, 0.002);
       }
     }
@@ -365,9 +391,18 @@ class Arena extends Phaser.Scene {
       e.barFg.setPosition(ex - 18, ey - 64);
     }
 
+    // Sombras dinamicas sob os personagens (pes a ~+52 px abaixo do centro).
+    this.shadowFx.clear();
+    this.shadowFx.fillStyle(0x000000, 0.32);
+    this.shadowFx.fillEllipse(this.player.x, this.player.y + 52, 48, 15);
+    for (const e of this.enemies) {
+      if (e.hp > 0) this.shadowFx.fillEllipse(e.s.x, e.s.y + 52, 48, 15);
+    }
+
     // Pocao: coleta por distancia (ignora o offset dos pes do corpo fisico).
     for (let i = this.potions.length - 1; i >= 0; i--) {
       const ps = this.potions[i];
+      ps.setScale(1.2 + Math.sin(time * 0.006 + ps.x) * 0.12); // pulsacao
       if (Phaser.Math.Distance.Between(this.player.x, this.player.y, ps.x, ps.y) < 40) {
         this.hp = Math.min(100, this.hp + POTION_HEAL);
         ps.destroy();
