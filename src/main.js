@@ -133,17 +133,24 @@ class Arena extends Phaser.Scene {
       { x: 1500, y: 800,  tint: 0xff8a8a, behavior: 'chaser',  hp: 60, side: 1  },
       { x: 600,  y: 600,  tint: 0xffb86a, behavior: 'flanker', hp: 50, side: 1  },
       { x: 1800, y: 1200, tint: 0xc9a6ff, behavior: 'stalker', hp: 80, side: -1 },
+      // Chefe: comeca adormecido fora do mapa; ativa quando os outros 3 caem.
+      { x: -400, y: -400, tint: 0xff3355, behavior: 'boss', hp: 150, side: 1, dormant: true },
     ];
     for (const sp of spawns) {
       const s = this.physics.add.sprite(sp.x, sp.y, 'walk_4_0').setScale(0.5).setDepth(1).setTint(sp.tint);
       s.body.setCircle(20, 108, 188).setImmovable(true);
-      const barBg = this.add.rectangle(0, -64, 36, 5, 0x222222, 0.85).setDepth(3);
-      const barFg = this.add.rectangle(-18, -64, 36, 5, 0xff5555, 1).setOrigin(0, 0.5).setDepth(4);
+      const isBoss = sp.behavior === 'boss';
+      const bw = isBoss ? 90 : 36;
+      const barBg = this.add.rectangle(0, -64, bw, 5, 0x222222, 0.85).setDepth(3);
+      const barFg = this.add.rectangle(-bw / 2, -64, bw, 5, isBoss ? 0xff3355 : 0xff5555, 1).setOrigin(0, 0.5).setDepth(4);
       this.enemies.push({ s, hp: sp.hp, maxHp: sp.hp, tint: sp.tint, behavior: sp.behavior, side: sp.side,
         atkCd: Math.random() * 0.5, state: 'approach', stateT: 0, animT: 0, barBg, barFg,
-        hx: sp.x, hy: sp.y, wx: sp.x, wy: sp.y, alerted: false });
+        hx: sp.x, hy: sp.y, wx: sp.x, wy: sp.y, alerted: false,
+        barOff: -bw / 2, dormant: !!sp.dormant, rage: false, pattern: 'slam', ax: 0, ay: 0, hitOnce: false });
+      if (sp.dormant) { s.setVisible(false); barBg.setVisible(false); barFg.setVisible(false); }
       this.physics.add.collider(this.player, s);
     }
+    this.boss = this.enemies.find((e) => e.behavior === 'boss');
     // Inimigos nao se sobrepoem entre si
     for (let i = 0; i < this.enemies.length; i++)
       for (let j = i + 1; j < this.enemies.length; j++)
@@ -241,6 +248,14 @@ class Arena extends Phaser.Scene {
     });
 
     // Ataque dos inimigos: por inimigo (ver update), sem timer global.
+  }
+
+  // Aviso grande no centro da tela (ex.: CHEFE!, FURIA!) que some sozinho.
+  showBanner(txt) {
+    const cam = this.cameras.main;
+    const t = this.add.text(cam.width / 2, cam.height * 0.3, txt, { fontSize: '40px', fontStyle: 'bold', color: '#ff4d6d', stroke: '#000', strokeThickness: 6 })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(22);
+    this.tweens.add({ targets: t, alpha: 0, y: t.y - 30, delay: 900, duration: 500, onComplete: () => t.destroy() });
   }
 
   // Texto flutuante (dano, etc.) que sobe e desaparece.
@@ -371,7 +386,6 @@ class Arena extends Phaser.Scene {
         // Flash branco de impacto (restaura o tint original; morte vira alpha).
         if (e.hp <= 0) {
           e.s.setVelocity(0, 0); e.s.clearTint(); e.s.setAlpha(0.35);
-          if (!e.dead) { e.dead = true; this.kills++; }
         }
         else {
           e.s.setTintFill(0xffffff);
@@ -382,8 +396,20 @@ class Arena extends Phaser.Scene {
     }
 
     // Inimigos: 3 comportamentos (mesma arte; diferem em movimentacao/ataque).
+    // Abates contados aqui (valem para qualquer causa de morte).
+    for (const e of this.enemies) if (e.hp <= 0 && !e.dead) { e.dead = true; this.kills++; }
+
+    // Chefe ativa quando todos os outros inimigos caem.
+    if (this.boss && this.boss.dormant && this.enemies.filter((e) => e !== this.boss).every((e) => e.hp <= 0)) {
+      const b = this.boss;
+      b.dormant = false; b.alerted = true; b.state = 'approach'; b.stateT = 1.5;
+      b.s.setPosition(1200, 300).setVisible(true);
+      b.barBg.setVisible(true); b.barFg.setVisible(true);
+      this.showBanner('CHEFE!');
+    }
+
     for (const e of this.enemies) {
-      if (e.hp <= 0) continue;
+      if (e.hp <= 0 || e.dormant) continue;
       e.atkCd = Math.max(0, e.atkCd - dt);
       const ex = e.s.x, ey = e.s.y;
       const px = this.player.x, py = this.player.y;
@@ -408,7 +434,7 @@ class Arena extends Phaser.Scene {
         const edir = dirFromAngle(pang);
         if (e.s.anims.currentAnim?.key !== `walk${edir}`) e.s.play(`walk${edir}`);
         e.barBg.setPosition(ex, ey - 64);
-        e.barFg.setPosition(ex - 18, ey - 64);
+        e.barFg.setPosition(ex + e.barOff, ey - 64);
         continue;
       }
       if (e.behavior === 'chaser') {
@@ -425,6 +451,53 @@ class Arena extends Phaser.Scene {
           vx = (vx / m) * BK.flankSpeed; vy = (vy / m) * BK.flankSpeed;
         }
         if (d < 75 && e.atkCd <= 0) { this.hurtPlayer(BK.flankDmg); e.atkCd = BK.flankCd; }
+      } else if (e.behavior === 'boss') {
+        // Chefe: persegue; alterna SOCO (area ao redor) e INVESTIDA (dash em linha reta).
+        // Abaixo de 50% de HP entra em furia: ataques mais rapidos e velozes.
+        if (!e.rage && e.hp <= e.maxHp / 2) { e.rage = true; e.s.setTint(0xff0033); this.showBanner('FÚRIA!'); }
+        const cd = e.rage ? 1.3 : 2.0;
+        const telegraph = e.rage ? 0.6 : 0.85;
+        e.stateT = Math.max(0, e.stateT - dt);
+        if (e.state === 'approach') {
+          if (d > 90) { const sp = e.rage ? 115 : 85; vx = Math.cos(ang) * sp; vy = Math.sin(ang) * sp; }
+          if (e.stateT <= 0) {
+            if (d < 150) { // so ataca de perto: soco e investida alcançam o jogador
+              e.state = 'warn'; e.stateT = telegraph; e.animT = 0;
+              e.ax = Math.cos(ang); e.ay = Math.sin(ang);
+            } else e.stateT = 0.3; // ainda longe: continua se aproximando
+          }
+        } else if (e.state === 'warn') {
+          showWalk = false;
+          e.animT += dt;
+          e.s.setTint(e.animT % 0.16 < 0.08 ? 0xffffff : (e.rage ? 0xff0033 : e.tint));
+          if (e.pattern === 'charge') { e.ax = Math.cos(ang); e.ay = Math.sin(ang); } // mira ate o fim
+          if (e.stateT <= 0) {
+            e.s.setTint(e.rage ? 0xff0033 : e.tint);
+            if (e.pattern === 'slam') {
+              // Onda de choque: area de raio 120 px ao redor do chefe
+              const ring = this.add.circle(ex, ey, 150, 0xff3355, 0.25).setDepth(2);
+              this.tweens.add({ targets: ring, scale: 1.1, alpha: 0, duration: 350, onComplete: () => ring.destroy() });
+              if (d < 150) this.hurtPlayer(20);
+              e.pattern = 'charge';
+              e.state = 'idle'; e.stateT = cd;
+            } else {
+              e.state = 'dash'; e.stateT = 0.5; e.hitOnce = false;
+            }
+          }
+        } else if (e.state === 'dash') {
+          showWalk = false;
+          const ds = e.rage ? 380 : 320;
+          vx = e.ax * ds; vy = e.ay * ds;
+          if (d < 60 && !e.hitOnce) { e.hitOnce = true; this.hurtPlayer(18); }
+          if (e.stateT <= 0) {
+            e.pattern = 'slam';
+            e.state = 'idle'; e.stateT = cd;
+          }
+        } else if (e.state === 'idle') {
+          // Recuperacao curta entre ataques: segue o jogador devagar.
+          if (d > 90) { const sp = e.rage ? 70 : 50; vx = Math.cos(ang) * sp; vy = Math.sin(ang) * sp; }
+          if (e.stateT <= 0) { e.state = 'approach'; e.stateT = 0.8; }
+        }
       } else { // 'stalker': aproxima, flasheia (telegraph), avanca
         e.stateT = Math.max(0, e.stateT - dt);
         if (e.state === 'approach') {
@@ -449,7 +522,7 @@ class Arena extends Phaser.Scene {
       const edir = dirFromAngle(ang); // mesmo mapeamento do jogador
       if (showWalk && e.s.anims.currentAnim?.key !== `walk${edir}`) e.s.play(`walk${edir}`);
       e.barBg.setPosition(ex, ey - 64);
-      e.barFg.setPosition(ex - 18, ey - 64);
+      e.barFg.setPosition(ex + e.barOff, ey - 64);
     }
 
     // Sombras dinamicas sob os personagens (pes a ~+52 px abaixo do centro).
