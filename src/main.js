@@ -79,7 +79,7 @@ class Arena extends Phaser.Scene {
       for (let f = 0; f < 4; f++) keys.push({ key: `dodge_${d}_${f}`, url: `assets/sprites/dodge_dir${d}_f${f}.png` });
     }
     // Sprites distintos por tipo de inimigo (carregados por etapa)
-    for (const type of ['chaser']) {
+    for (const type of ['chaser','flanker']) {
       for (let d = 0; d < 8; d++) for (let f = 0; f < 8; f++) {
         keys.push({ key: `${type}_walk_${d}_${f}`, url: `assets/sprites/${type}_walk_dir${d}_f${f}.png` });
       }
@@ -164,7 +164,8 @@ class Arena extends Phaser.Scene {
       { x: -400, y: -400, tint: 0xff3355, behavior: 'boss', hp: 150, side: 1, dormant: true },
     ];
     for (const sp of spawns) {
-      const baseTex = (sp.behavior === 'chaser') ? 'chaser_walk_4_0' : 'walk_4_0';
+      const hasOwnSprite = (sp.behavior === 'chaser' || sp.behavior === 'flanker');
+      const baseTex = hasOwnSprite ? `${sp.behavior}_walk_4_0` : 'walk_4_0';
       const s = this.physics.add.sprite(sp.x, sp.y, baseTex).setScale(0.5).setDepth(1).setTint(sp.tint);
       s.body.setCircle(20, 108, 188).setImmovable(true);
       const isBoss = sp.behavior === 'boss';
@@ -240,7 +241,7 @@ class Arena extends Phaser.Scene {
       this.anims.create({ key: `attack${d}`, frames: Array.from({length:4},(_,i)=>({key:`attack_${d}_${i}`})), frameRate: 16, repeat: 0 });
       this.anims.create({ key: `dodge${d}`, frames: Array.from({length:4},(_,i)=>({key:`dodge_${d}_${i}`})), frameRate: 13, repeat: 0 });
     }
-    for (const type of ['chaser']) {
+    for (const type of ['chaser','flanker']) {
       for (let d = 0; d < 8; d++) {
         this.anims.create({ key: `${type}_walk${d}`, frames: Array.from({length:8},(_,i)=>({key:`${type}_walk_${d}_${i}`})), frameRate: 12, repeat: -1 });
       }
@@ -395,7 +396,8 @@ class Arena extends Phaser.Scene {
       { x: 1900, y: 1400, tint: 0xd39bff, behavior: 'stalker', hp: 104, side: 1 },
     ];
     for (const sp of spawns) {
-      const baseTex = (sp.behavior === 'chaser') ? 'chaser_walk_4_0' : 'walk_4_0';
+      const hasOwnSprite = (sp.behavior === 'chaser' || sp.behavior === 'flanker');
+      const baseTex = hasOwnSprite ? `${sp.behavior}_walk_4_0` : 'walk_4_0';
       const s = this.physics.add.sprite(sp.x, sp.y, baseTex).setScale(0.5).setDepth(1).setTint(sp.tint);
       s.body.setCircle(20, 108, 188).setImmovable(true);
       const bw = 36;
@@ -757,7 +759,7 @@ class Arena extends Phaser.Scene {
         e.s.setVelocity(vx, vy);
         const edir = dirFromAngle(pang);
         const efd = faceDir(edir);
-        const eWalk = (e.behavior === 'chaser') ? `chaser_walk${efd}` : `walk${efd}`;
+        const eWalk = (e.behavior === 'chaser' || e.behavior === 'flanker') ? `${e.behavior}_walk${efd}` : `walk${efd}`;
         if (e.s.anims.currentAnim?.key !== eWalk) e.s.play(eWalk);
         e.barBg.setPosition(ex, ey - 64);
         e.barFg.setPosition(ex + e.barOff, ey - 64);
@@ -889,7 +891,7 @@ class Arena extends Phaser.Scene {
       e.s.setVelocity(vx, vy);
       const edir = dirFromAngle(ang); // mesmo mapeamento do jogador
       const efd = faceDir(edir);
-      const eWalk = (e.behavior === 'chaser') ? `chaser_walk${efd}` : `walk${efd}`;
+      const eWalk = (e.behavior === 'chaser' || e.behavior === 'flanker') ? `${e.behavior}_walk${efd}` : `walk${efd}`;
       if (showWalk && e.s.anims.currentAnim?.key !== eWalk) e.s.play(eWalk);
       e.barBg.setPosition(ex, ey - 64);
       e.barFg.setPosition(ex + e.barOff, ey - 64);
