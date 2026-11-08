@@ -151,22 +151,23 @@ class Arena extends Phaser.Scene {
     const pick = (arr) => arr[Phaser.Math.Between(0, arr.length - 1)];
     const elitePick = Phaser.Math.Between(0, 2); // 1 inimigo elite por partida (variedade)
     const base = [
-      { ...(() => { const p = pick(slots.chaser); return {x:p[0],y:p[1]}; })(), tint: 0xff8a8a, behavior: 'chaser',  hp: 60, side: 1  },
-      { ...(() => { const p = pick(slots.flanker); return {x:p[0],y:p[1]}; })(), tint: 0xffb86a, behavior: 'flanker', hp: 50, side: Phaser.Math.Between(0,1)?1:-1 },
-      { ...(() => { const p = pick(slots.stalker); return {x:p[0],y:p[1]}; })(), tint: 0xc9a6ff, behavior: 'stalker', hp: 80, side: -1 },
+      { ...(() => { const p = pick(slots.chaser); return {x:p[0],y:p[1]}; })(), tint: 0xffffff, behavior: 'chaser',  hp: 60, side: 1  },
+      { ...(() => { const p = pick(slots.flanker); return {x:p[0],y:p[1]}; })(), tint: 0xffffff, behavior: 'flanker', hp: 50, side: Phaser.Math.Between(0,1)?1:-1 },
+      { ...(() => { const p = pick(slots.stalker); return {x:p[0],y:p[1]}; })(), tint: 0xffffff, behavior: 'stalker', hp: 80, side: -1 },
     ];
     base.forEach((sp, i) => {
-      if (i === elitePick) { sp.elite = true; sp.hp = Math.round(sp.hp * 1.4); sp.tint = 0xfff0a0; }
+      if (i === elitePick) { sp.elite = true; sp.hp = Math.round(sp.hp * 1.4); sp.tint = 0xfff6d5; }
     });
     const spawns = [
       ...base,
       // Chefe: comeca adormecido fora do mapa; ativa quando os outros 3 caem.
-      { x: -400, y: -400, tint: 0xff3355, behavior: 'boss', hp: 150, side: 1, dormant: true },
+      { x: -400, y: -400, tint: 0xffffff, behavior: 'boss', hp: 150, side: 1, dormant: true },
     ];
     for (const sp of spawns) {
       const hasOwnSprite = (sp.behavior === 'chaser' || sp.behavior === 'flanker' || sp.behavior === 'stalker' || sp.behavior === 'boss');
       const baseTex = hasOwnSprite ? `${sp.behavior}_walk_4_0` : 'walk_4_0';
-      const s = this.physics.add.sprite(sp.x, sp.y, baseTex).setScale(0.5).setDepth(1).setTint(sp.tint);
+      const displayScale = (sp.behavior === 'boss') ? 0.56 : (sp.behavior === 'stalker' ? 0.52 : 0.5);
+      const s = this.physics.add.sprite(sp.x, sp.y, baseTex).setScale(displayScale).setDepth(1).setTint(sp.tint);
       s.body.setCircle(20, 108, 188).setImmovable(true);
       const isBoss = sp.behavior === 'boss';
       const bw = isBoss ? 90 : 36;
@@ -391,14 +392,15 @@ class Arena extends Phaser.Scene {
   spawnBonusWave() {
     // Progressao: onda bonus mais dificil (mesmas mecanicas; HP +30%). Sem mexer no balanceamento da Onda 1.
     const spawns = [
-      { x: 1600, y: 500,  tint: 0xff6666, behavior: 'chaser',  hp: 78, side: 1  },
-      { x: 500,  y: 1300, tint: 0xffaa55, behavior: 'flanker', hp: 65, side: -1 },
-      { x: 1900, y: 1400, tint: 0xd39bff, behavior: 'stalker', hp: 104, side: 1 },
+      { x: 1600, y: 500,  tint: 0xffffff, behavior: 'chaser',  hp: 78, side: 1  },
+      { x: 500,  y: 1300, tint: 0xffffff, behavior: 'flanker', hp: 65, side: -1 },
+      { x: 1900, y: 1400, tint: 0xffffff, behavior: 'stalker', hp: 104, side: 1 },
     ];
     for (const sp of spawns) {
       const hasOwnSprite = (sp.behavior === 'chaser' || sp.behavior === 'flanker' || sp.behavior === 'stalker' || sp.behavior === 'boss');
       const baseTex = hasOwnSprite ? `${sp.behavior}_walk_4_0` : 'walk_4_0';
-      const s = this.physics.add.sprite(sp.x, sp.y, baseTex).setScale(0.5).setDepth(1).setTint(sp.tint);
+      const displayScale = (sp.behavior === 'boss') ? 0.56 : (sp.behavior === 'stalker' ? 0.52 : 0.5);
+      const s = this.physics.add.sprite(sp.x, sp.y, baseTex).setScale(displayScale).setDepth(1).setTint(sp.tint);
       s.body.setCircle(20, 108, 188).setImmovable(true);
       const bw = 36;
       const barBg = this.add.rectangle(0, -64, bw, 5, 0x222222, 0.85).setDepth(3);
@@ -557,7 +559,7 @@ class Arena extends Phaser.Scene {
     } else {
       e.s.setTint(0xffffff);
       if (e.s.setTintMode) e.s.setTintMode(Phaser.TintModes ? Phaser.TintModes.FILL : 0);
-      this.time.delayedCall(80, () => { if (e.hp > 0) { e.s.clearTint(); e.s.setTint(e.tint); } });
+      this.time.delayedCall(80, () => { if (e.hp > 0) { e.s.clearTint(); e.s.setTint(e.rage ? 0xff0033 : e.tint); } });
     }
     return true;
   }
