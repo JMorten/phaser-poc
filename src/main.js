@@ -246,6 +246,7 @@ class Arena extends Phaser.Scene {
     this.wave = 1;
     this.wave2Pending = false;
     this.soulDrops = [];
+    this.projectiles = [];
 
     this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
@@ -521,6 +522,72 @@ class Arena extends Phaser.Scene {
     if (this.paused && !silent) { this.player.setVelocity(0, 0); for (const e of this.enemies) e.s.setVelocity(0, 0); }
   }
 
+  applyDamageToEnemy(e, dmg) {
+    if (e.hp <= 0 || e.dormant) return false;
+    e.hp -= dmg;
+    e.barFg.setScale(Math.max(0, e.hp) / e.maxHp, 1);
+    this.floatText(e.s.x, e.s.y, `-${dmg}`, e.behavior === 'boss' ? '#88ddff' : '#b8f0ff', e.behavior === 'boss' ? 22 : 18);
+    this.sparks(e.s.x, e.s.y, e.behavior === 'boss' ? 0x55ccff : 0x88e6ff, e.behavior === 'boss' ? 12 : 8, e.behavior === 'boss' ? 55 : 42);
+    this.hitstop(35); this.cameras.main.shake(50, 0.002);
+    if (e.hp <= 0) {
+      e.s.setVelocity(0, 0); e.s.clearTint();
+      if (e.s.body) e.s.body.enable = false;
+      e.barBg.setVisible(false); e.barFg.setVisible(false);
+      if (e.aura) e.aura.setVisible(false);
+      this.spawnSoul(e.s.x, e.s.y, e.behavior === 'boss' || !!e.elite);
+      this.sparks(e.s.x, e.s.y, e.tint || 0xffffff, e.behavior === 'boss' ? 22 : (e.elite ? 18 : 14), e.behavior === 'boss' ? 90 : (e.elite ? 80 : 70));
+      this.dust(e.s.x, e.s.y, e.behavior === 'boss' ? 8 : 4);
+      this.tweens.add({ targets: e.s, alpha: 0, scale: e.behavior === 'boss' ? 0.35 : 0.3, y: e.s.y + 8, duration: e.behavior === 'boss' ? 700 : 450, ease: 'Quad.easeIn' });
+      if (e.behavior === 'boss') this.cameras.main.flash(140, 180, 240, 255);
+    } else {
+      e.s.setTint(0xffffff);
+      if (e.s.setTintMode) e.s.setTintMode(Phaser.TintModes ? Phaser.TintModes.FILL : 0);
+      this.time.delayedCall(80, () => { if (e.hp > 0) { e.s.clearTint(); e.s.setTint(e.tint); } });
+    }
+    return true;
+  }
+
+  spawnProjectile(x, y, vx, vy) {
+    const obj = this.add.circle(x, y, 8, 0x88eeff, 0.95).setDepth(4);
+    const core = this.add.circle(x, y, 4, 0xffffff, 0.9).setDepth(4);
+    const glow = this.add.circle(x, y, 16, 0x44bbff, 0.18).setDepth(3.8);
+    if (Phaser.BlendModes && Phaser.BlendModes.ADD !== undefined) { obj.setBlendMode(Phaser.BlendModes.ADD); glow.setBlendMode(Phaser.BlendModes.ADD); }
+    this.projectiles.push({ obj, core, glow, vx, vy, life: 0.9, speed: 540, _trail: 0 });
+  }
+
+  updateProjectiles(dt) {
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const p = this.projectiles[i];
+      p.life -= dt;
+      const dx = p.vx * p.speed * dt, dy = p.vy * p.speed * dt;
+      p.obj.x += dx; p.obj.y += dy; p.core.x += dx; p.core.y += dy; p.glow.x += dx; p.glow.y += dy;
+      p._trail += dt;
+      if (p._trail > 0.03) {
+        p._trail = 0;
+        const tr = this.add.circle(p.obj.x, p.obj.y, 5, 0x66ccff, 0.28).setDepth(3.7);
+        if (Phaser.BlendModes && Phaser.BlendModes.ADD !== undefined) tr.setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({ targets: tr, alpha: 0, scale: 0.3, duration: 220, onComplete: () => tr.destroy() });
+      }
+      let hit = false;
+      for (const e of this.enemies) {
+        if (e.hp <= 0 || e.dormant) continue;
+        const d = Phaser.Math.Distance.Between(p.obj.x, p.obj.y, e.s.x, e.s.y);
+        if (d < 34) {
+          this.applyDamageToEnemy(e, BK.atkDmg);
+          this.sparks(p.obj.x, p.obj.y, 0x99eeff, 10, 36);
+          hit = true;
+          break;
+        }
+      }
+      const oob = p.obj.x < -40 || p.obj.y < -40 || p.obj.x > WORLD_W + 40 || p.obj.y > WORLD_H + 40;
+      if (hit || p.life <= 0 || oob) {
+        if (!hit && p.life <= 0) { this.sparks(p.obj.x, p.obj.y, 0x5599cc, 4, 18); }
+        p.obj.destroy(); p.core.destroy(); p.glow.destroy();
+        this.projectiles.splice(i, 1);
+      }
+    }
+  }
+
   hurtPlayer(dmg, source) {
     if (this.dodging || this.over) return;
     this.hp -= dmg;
@@ -608,72 +675,24 @@ class Arena extends Phaser.Scene {
       }
     }
 
-    // Ataque direto: acerta apenas inimigos dentro do alcance E do setor frontal.
+    // Magia: lanca um projetil arcano na direcao do mago (substitui golpe corpo a corpo).
     const wantAtk = Phaser.Input.Keyboard.JustDown(this.keys.J) || this.touchAttack;
     this.touchAttack = false;
     if (wantAtk && this.atkCd <= 0) {
       this.atkCd = BK.atkCd;
       this.atkLock = ATTACK_TIME;
-      this.atkDir = this.dir; // direcao logica travada para o arco visual
       this.player.play(`attack${faceDir(this.dir)}`);
-      this.time.delayedCall(ATTACK_TIME * 1000, () => { this.atkLock = 0; this.atkFx.clear(); });
       const v = VEC[this.dir];
-      let hitAny = false;
-      for (const e of this.enemies) {
-        if (e.hp <= 0 || e.dormant) continue;
-        const dx = e.s.x - this.player.x, dy = e.s.y - this.player.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist > HIT_RANGE) continue;
-        const facing = dist < 1 || (v[0] * (dx / dist) + v[1] * (dy / dist)) >= HIT_HALF_COS;
-        if (!facing) continue;
-        hitAny = true;
-        e.hp -= BK.atkDmg;
-        e.barFg.setScale(Math.max(0, e.hp) / e.maxHp, 1);
-        this.floatText(e.s.x, e.s.y, `-${BK.atkDmg}`, e.behavior === 'boss' ? '#ff6688' : '#ffe08a', e.behavior === 'boss' ? 22 : 18);
-        this.sparks(e.s.x, e.s.y, e.behavior === 'boss' ? 0xff4466 : 0xffe08a, e.behavior === 'boss' ? 12 : 8, e.behavior === 'boss' ? 55 : 42);
-        // Flash branco de impacto (restaura o tint original; morte vira alpha).
-        if (e.hp <= 0) {
-          e.s.setVelocity(0, 0); e.s.clearTint();
-          if (e.s.body) e.s.body.enable = false;
-          e.barBg.setVisible(false); e.barFg.setVisible(false);
-          if (e.aura) e.aura.setVisible(false);
-          this.spawnSoul(e.s.x, e.s.y, e.behavior === 'boss' || !!e.elite);
-          this.sparks(e.s.x, e.s.y, e.tint || 0xffffff, e.behavior === 'boss' ? 22 : (e.elite ? 18 : 14), e.behavior === 'boss' ? 90 : (e.elite ? 80 : 70));
-          this.dust(e.s.x, e.s.y, e.behavior === 'boss' ? 8 : 4);
-          this.tweens.add({ targets: e.s, alpha: 0, scale: e.behavior === 'boss' ? 0.35 : 0.3, y: e.s.y + 8, duration: e.behavior === 'boss' ? 700 : 450, ease: 'Quad.easeIn' });
-          if (e.behavior === 'boss') this.cameras.main.flash(140, 255, 220, 180);
-        }
-        else {
-          e.s.setTint(0xffffff);
-          if (e.s.setTintMode) e.s.setTintMode(Phaser.TintModes ? Phaser.TintModes.FILL : 0);
-          this.time.delayedCall(80, () => { if (e.hp > 0) { e.s.clearTint(); e.s.setTint(e.tint); } });
-        }
-      }
-      if (hitAny) { this.hitstop(55); this.cameras.main.shake(70, 0.003); }
+      this.spawnProjectile(this.player.x + v[0] * 28, this.player.y + v[1] * 28 - 8, v[0], v[1]);
+      // Clarão de conjuração
+      this.atkFx.clear();
+      this.atkFx.fillStyle(0x66ddff, 0.22);
+      this.atkFx.fillCircle(this.player.x + v[0] * 26, this.player.y + v[1] * 26 - 8, 18);
+      this.time.delayedCall(120, () => this.atkFx.clear());
+      this.time.delayedCall(ATTACK_TIME * 1000, () => { this.atkLock = 0; });
     }
 
-    // Arco animado do ataque: varre o setor frontal durante a trava (substitui a cunha estatica).
-    if (this.atkLock > 0) {
-      const p = 1 - this.atkLock / ATTACK_TIME; // 0..1
-      const v = VEC[this.atkDir ?? this.dir];
-      const a = Math.atan2(v[1], v[0]), half = 0.75;
-      const sweep = -half + (half * 2) * Math.min(1, p * 1.25);
-      this.atkFx.clear();
-      // rastro
-      this.atkFx.fillStyle(0xffdd88, 0.18 * (1 - p * 0.5));
-      this.atkFx.beginPath(); this.atkFx.moveTo(this.player.x, this.player.y);
-      this.atkFx.arc(this.player.x, this.player.y, HIT_RANGE, a - half, a + sweep, false);
-      this.atkFx.closePath(); this.atkFx.fillPath();
-      // lamina brilhante (borda do varrimento)
-      this.atkFx.lineStyle(4, 0xfff4cc, 0.85 * (1 - p * 0.6));
-      this.atkFx.beginPath();
-      this.atkFx.arc(this.player.x, this.player.y, HIT_RANGE - 6, a + sweep - 0.12, a + sweep + 0.04, false);
-      this.atkFx.strokePath();
-      this.atkFx.lineStyle(2, 0xffffff, 0.5);
-      this.atkFx.beginPath();
-      this.atkFx.arc(this.player.x, this.player.y, HIT_RANGE - 14, a - half * 0.2, a + sweep, false);
-      this.atkFx.strokePath();
-    }
+    this.updateProjectiles(dt);
 
     // Inimigos: 3 comportamentos (mesma arte; diferem em movimentacao/ataque).
     // Abates contados aqui (valem para qualquer causa de morte).
