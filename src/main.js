@@ -83,17 +83,19 @@ class Arena extends Phaser.Scene {
 
   create() {
     // Fundo: textura de chao gerada em runtime (CanvasTexture; sem PNG novo).
+    // Paleta fria/gotica inspirada em Diablo/Dark Eden.
     const ct = this.textures.createCanvas('ground', 256, 256);
     const c = ct.context;
-    c.fillStyle = '#171c22'; c.fillRect(0, 0, 256, 256);
+    c.fillStyle = '#10141b'; c.fillRect(0, 0, 256, 256);
     for (let i = 0; i < 900; i++) { // ruido fino (granulos)
-      const a = 0.03 + Math.random() * 0.09;
-      c.fillStyle = Math.random() < 0.5 ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a + 0.05})`;
+      const a = 0.02 + Math.random() * 0.08;
+      if (Math.random() < 0.45) c.fillStyle = `rgba(120,140,170,${a})`;
+      else c.fillStyle = `rgba(0,0,0,${a + 0.04})`;
       c.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
     }
     for (let i = 0; i < 40; i++) { // mottling amplo (variacao tonal)
       const r = 20 + Math.random() * 40;
-      c.fillStyle = `rgba(255,255,255,${Math.random() * 0.03})`;
+      c.fillStyle = `rgba(70,90,120,${Math.random() * 0.035})`;
       c.beginPath(); c.arc(Math.random() * 256, Math.random() * 256, r, 0, Math.PI * 2); c.fill();
     }
     ct.refresh();
@@ -103,8 +105,8 @@ class Arena extends Phaser.Scene {
     for (let i = 0; i < 36; i++) {
       const sx = 60 + Math.random() * (WORLD_W - 120), sy = 60 + Math.random() * (WORLD_H - 120);
       const sw = 18 + Math.random() * 34, sh = 8 + Math.random() * 12;
-      this.add.ellipse(sx, sy, sw, sh, 0x2a323d, 0.55).setDepth(0);
-      this.add.ellipse(sx - sw * 0.12, sy - sh * 0.18, sw * 0.6, sh * 0.45, 0x38424f, 0.5).setDepth(0);
+      this.add.ellipse(sx, sy, sw, sh, 0x202833, 0.6).setDepth(0);
+      this.add.ellipse(sx - sw * 0.12, sy - sh * 0.18, sw * 0.6, sh * 0.45, 0x2c3644, 0.55).setDepth(0);
     }
 
     // Sombras dinamicas (abaixo dos personagens; redesenhadas a cada quadro)
@@ -194,6 +196,9 @@ class Arena extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
 
+    // Atmosfera (Diablo/Dark Eden): vinheta fixa + luz suave ao redor do jogador.
+    this.setupAtmosphere();
+
     // Multi-toque (iPhone): ponteiros extras para joystick + ATK/ESQ simultaneos
     this.input.addPointer(3);
 
@@ -220,7 +225,7 @@ class Arena extends Phaser.Scene {
     this.input.on('pointerup', p => { if (p.id === this.joy.id) { this.joy.active = false; this.joyGfx?.clear(); } });
     this.touchAttack = false; this.touchDodge = false;
     // Joystick visual (tela): base fixa no ponto de toque + polegar segue o dedo.
-    this.joyGfx = this.add.graphics().setDepth(11).setScrollFactor(0);
+    this.joyGfx = this.add.graphics().setDepth(18).setScrollFactor(0);
     const drawJoy = () => {
       this.joyGfx.clear();
       if (!this.joy.active) return;
@@ -240,17 +245,55 @@ class Arena extends Phaser.Scene {
     const pos = (w, h) => ({ x: w - (w < 600 ? 120 : 170), y1: h - (h < 700 ? 170 : 150), y2: h - (h < 700 ? 95 : 80) });
     const p0 = pos(cam.width, cam.height);
     this.btnAtk = this.add.text(p0.x, p0.y1, 'ATK', style)
-      .setOrigin(0).setDepth(10).setScrollFactor(0).setInteractive().on('pointerdown', () => { this.touchAttack = true; });
+      .setOrigin(0).setDepth(18).setScrollFactor(0).setInteractive().on('pointerdown', () => { this.touchAttack = true; });
     this.btnDodge = this.add.text(p0.x, p0.y2, 'ESQ', style)
-      .setOrigin(0).setDepth(10).setScrollFactor(0).setInteractive().on('pointerdown', () => { this.touchDodge = true; });
+      .setOrigin(0).setDepth(18).setScrollFactor(0).setInteractive().on('pointerdown', () => { this.touchDodge = true; });
     this.scale.on('resize', (gameSize) => {
       const p = pos(gameSize.width, gameSize.height);
       this.btnAtk.setPosition(p.x, p.y1);
       this.btnDodge.setPosition(p.x, p.y2);
       this.joyRadius = Math.max(40, Math.min(70, gameSize.width * 0.12));
+      if (this.atmoVignette) {
+        this.atmoVignette.setPosition(gameSize.width / 2, gameSize.height / 2);
+        this.atmoVignette.setDisplaySize(gameSize.width, gameSize.height);
+      }
     });
 
     // Ataque dos inimigos: por inimigo (ver update), sem timer global.
+  }
+
+  setupAtmosphere() {
+    const cam = this.cameras.main;
+    // Luz do heroi (mundo): gradiente radial aditivo, segue o jogador.
+    if (!this.textures.exists('heroLight')) {
+      const t = this.textures.createCanvas('heroLight', 512, 512);
+      const g = t.context.createRadialGradient(256, 256, 10, 256, 256, 256);
+      g.addColorStop(0, 'rgba(255,244,214,0.22)');
+      g.addColorStop(0.25, 'rgba(210,225,255,0.10)');
+      g.addColorStop(0.55, 'rgba(140,170,220,0.04)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      t.context.fillStyle = g;
+      t.context.fillRect(0, 0, 512, 512);
+      t.refresh();
+    }
+    this.heroLight = this.add.image(this.player.x, this.player.y, 'heroLight').setDepth(0.55).setScale(1.15).setAlpha(0.9);
+    if (Phaser.BlendModes && Phaser.BlendModes.ADD !== undefined) this.heroLight.setBlendMode(Phaser.BlendModes.ADD);
+
+    // Vinheta permanente (tela): bordas escuras, centro mais limpo.
+    if (!this.textures.exists('atmoVignette')) {
+      const t = this.textures.createCanvas('atmoVignette', 512, 512);
+      const g = t.context.createRadialGradient(256, 256, 90, 256, 256, 360);
+      g.addColorStop(0, 'rgba(0,0,0,0)');
+      g.addColorStop(0.45, 'rgba(0,0,0,0.10)');
+      g.addColorStop(0.78, 'rgba(0,0,0,0.42)');
+      g.addColorStop(1, 'rgba(0,0,0,0.72)');
+      t.context.fillStyle = g;
+      t.context.fillRect(0, 0, 512, 512);
+      t.refresh();
+    }
+    this.atmoVignette = this.add.image(cam.width / 2, cam.height / 2, 'atmoVignette')
+      .setScrollFactor(0).setDepth(17).setAlpha(1);
+    this.atmoVignette.setDisplaySize(cam.width, cam.height);
   }
 
   // Aviso grande no centro da tela (ex.: CHEFE!, FURIA!) que some sozinho.
@@ -586,11 +629,13 @@ class Arena extends Phaser.Scene {
 
     // Sombras dinamicas sob os personagens (pes a ~+52 px abaixo do centro).
     this.shadowFx.clear();
-    this.shadowFx.fillStyle(0x000000, 0.32);
+    this.shadowFx.fillStyle(0x000000, 0.38);
     this.shadowFx.fillEllipse(this.player.x, this.player.y + 52, 48, 15);
     for (const e of this.enemies) {
       if (e.hp > 0) this.shadowFx.fillEllipse(e.s.x, e.s.y + 52, 48, 15);
     }
+    // Luz do heroi segue o jogador (atmosfera).
+    if (this.heroLight) this.heroLight.setPosition(this.player.x, this.player.y);
 
     // Pocao: coleta por distancia (ignora o offset dos pes do corpo fisico).
     for (let i = this.potions.length - 1; i >= 0; i--) {
