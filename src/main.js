@@ -24,6 +24,9 @@ const DODGE_DIST_U = 4;         // unidades (aprovada)
 // DODGE_TIME aprovado no lote de balanceamento: 0,3 s = 4 quadros a 0,075 s/quadro
 // (taxa do ciclo de caminhada: 0,6 s / 8 quadros, cf. "duracao_assumida" da spec).
 const DODGE_TIME = 0.3;         // s (4 quadros @ 0,075 s)
+// Os sprites renderizados ficaram 180° invertidos em relacao a VEC/dir (frente/costas).
+// A direcao logica (this.dir, VEC, cunha/area de ataque) permanece correta; so a arte exibida gira 180°.
+function faceDir(d) { return (d + 4) % 8; }
 const ATTACK_TIME = 0.25;       // s (4 quadros @ 16 fps: trava da animacao de ataque)
 const HIT_RANGE = 85;           // px: alcance do ataque (centro a centro)
 const HIT_HALF_COS = 0.764;     // cosseno do meio-angulo (~40 graus): setor de ataque
@@ -259,26 +262,53 @@ class Arena extends Phaser.Scene {
   }
 
   // Texto flutuante (dano, etc.) que sobe e desaparece.
-  floatText(x, y, txt, color) {
-    const t = this.add.text(x, y - 20, txt, { fontSize: '18px', fontStyle: 'bold', color, stroke: '#000', strokeThickness: 4 })
+  floatText(x, y, txt, color, size = 18) {
+    const t = this.add.text(x, y - 20, txt, { fontSize: `${size}px`, fontStyle: 'bold', color, stroke: '#000', strokeThickness: 4 })
       .setOrigin(0.5).setDepth(12);
-    this.tweens.add({ targets: t, y: y - 60, alpha: 0, duration: 700, ease: 'Quad.easeOut', onComplete: () => t.destroy() });
+    this.tweens.add({ targets: t, y: y - 65, alpha: 0, scale: 1.15, duration: 720, ease: 'Quad.easeOut', onComplete: () => t.destroy() });
   }
 
   // Faiscas simples no ponto de impacto.
-  sparks(x, y, color) {
-    for (let i = 0; i < 6; i++) {
-      const a = (Math.PI * 2 * i) / 6 + Math.random() * 0.5;
-      const p = this.add.rectangle(x, y, 5, 5, color).setDepth(6);
-      this.tweens.add({ targets: p, x: x + Math.cos(a) * 34, y: y + Math.sin(a) * 34, alpha: 0, duration: 360, onComplete: () => p.destroy() });
+  sparks(x, y, color, n = 8, spread = 42) {
+    for (let i = 0; i < n; i++) {
+      const a = (Math.PI * 2 * i) / n + Math.random() * 0.6;
+      const s = 3 + Math.random() * 4;
+      const p = this.add.rectangle(x, y, s, s, color).setDepth(6);
+      this.tweens.add({ targets: p, x: x + Math.cos(a) * spread * (0.6 + Math.random() * 0.5), y: y + Math.sin(a) * spread * (0.6 + Math.random() * 0.5), alpha: 0, rotation: Math.random() * 2, duration: 280 + Math.random() * 180, onComplete: () => p.destroy() });
+    }
+  }
+
+  // Hitstop curto: pausa a fisica/simulacao por ms (sensacao de impacto).
+  hitstop(ms = 55) {
+    if (this._hitstop) return;
+    this._hitstop = true;
+    this.physics.world.pause();
+    this.time.delayedCall(ms, () => { this.physics.world.resume(); this._hitstop = false; });
+  }
+
+  // Vinheta vermelha rapida ao levar dano.
+  damageVignette() {
+    const cam = this.cameras.main;
+    if (!this._vig) this._vig = this.add.rectangle(cam.width / 2, cam.height / 2, cam.width, cam.height, 0xff0000, 0)
+      .setScrollFactor(0).setDepth(19);
+    this._vig.setAlpha(0.22);
+    this.tweens.add({ targets: this._vig, alpha: 0, duration: 220 });
+  }
+
+  // Poeira no chao (passos/esquiva).
+  dust(x, y, n = 3) {
+    for (let i = 0; i < n; i++) {
+      const d = this.add.ellipse(x + (Math.random() - 0.5) * 10, y + 42 + (Math.random() - 0.5) * 6, 6 + Math.random() * 8, 3 + Math.random() * 4, 0xb8b0a0, 0.35).setDepth(1);
+      this.tweens.add({ targets: d, x: d.x + (Math.random() - 0.5) * 18, y: d.y - 4 - Math.random() * 8, alpha: 0, scaleX: 1.6, duration: 420, onComplete: () => d.destroy() });
     }
   }
 
   hurtPlayer(dmg) {
     if (this.dodging || this.over) return;
     this.hp -= dmg;
-    this.floatText(this.player.x, this.player.y, `-${dmg}`, '#ff6b6b');
-    this.cameras.main.shake(80, 0.003);
+    this.floatText(this.player.x, this.player.y, `-${dmg}`, '#ff6b6b', 22);
+    this.damageVignette();
+    this.cameras.main.shake(100, 0.0045);
     if (this.hp <= 0) this.showEnd('DERROTA');
   }
 
@@ -323,16 +353,17 @@ class Arena extends Phaser.Scene {
       this.dodging = true; this.dodgeCd = 0.8;
       const v = VEC[this.dir];
       this.player.setVelocity(v[0] * DODGE_SPEED, v[1] * DODGE_SPEED);
-      this.player.play(`dodge${this.dir}`);
+      this.player.play(`dodge${faceDir(this.dir)}`);
       this.ghostAt = 0;
-      this.time.delayedCall(DODGE_TIME * 1000, () => { this.dodging = false; this.player.setVelocity(0, 0); });
+      this.dust(this.player.x, this.player.y, 5);
+      this.time.delayedCall(DODGE_TIME * 1000, () => { this.dodging = false; this.player.setVelocity(0, 0); this.dust(this.player.x, this.player.y, 4); });
     }
     // Rastro fantasma durante a esquiva (um a cada ~45 ms).
     if (this.dodging && time - (this.ghostAt || 0) > 45) {
       this.ghostAt = time;
       const gh = this.add.sprite(this.player.x, this.player.y, this.player.texture.key, this.player.frame.name)
         .setScale(0.5).setTint(0x66ccff).setAlpha(0.45).setDepth(1.5);
-      this.tweens.add({ targets: gh, alpha: 0, duration: 260, onComplete: () => gh.destroy() });
+      this.tweens.add({ targets: gh, alpha: 0, scale: 0.42, duration: 260, onComplete: () => gh.destroy() });
     }
 
     if (!this.dodging) {
@@ -341,26 +372,16 @@ class Arena extends Phaser.Scene {
         this.player.setVelocity((x / m) * WALK_SPEED, (y / m) * WALK_SPEED);
         // Durante a trava de ataque (0,25 s) a animacao de ataque permanece,
         // mesmo com tecla de movimento pressionada (velocidade continua normal).
-        if (this.atkLock <= 0 && (!this.player.anims.isPlaying || this.player.anims.currentAnim?.key !== `walk${this.dir}`))
-          this.player.play(`walk${this.dir}`);
+        const fd = faceDir(this.dir);
+        if (this.atkLock <= 0 && (!this.player.anims.isPlaying || this.player.anims.currentAnim?.key !== `walk${fd}`))
+          this.player.play(`walk${fd}`);
+        if (time - (this._stepDust || 0) > 180) { this._stepDust = time; this.dust(this.player.x, this.player.y, 1); }
       } else {
         this.player.setVelocity(0, 0);
         if (this.atkLock <= 0 && this.player.anims.currentAnim && this.player.anims.currentAnim.key.startsWith('walk'))
-          this.player.setTexture(`walk_${this.dir}_0`);
+          this.player.setTexture(`walk_${faceDir(this.dir)}_0`);
       }
     }
-
-    // Setor visivel do ataque: cunha de ~80 graus a frente do jogador (flash).
-    const drawAtkFx = () => {
-      const v = VEC[this.dir];
-      const a = Math.atan2(v[1], v[0]), half = 0.7;
-      this.atkFx.clear();
-      this.atkFx.fillStyle(0xffcc66, 0.35);
-      this.atkFx.beginPath();
-      this.atkFx.arc(this.player.x, this.player.y, HIT_RANGE, a - half, a + half, false);
-      this.atkFx.closePath();
-      this.atkFx.fillPath();
-    };
 
     // Ataque direto: acerta apenas inimigos dentro do alcance E do setor frontal.
     const wantAtk = Phaser.Input.Keyboard.JustDown(this.keys.J) || this.touchAttack;
@@ -368,31 +389,59 @@ class Arena extends Phaser.Scene {
     if (wantAtk && this.atkCd <= 0) {
       this.atkCd = BK.atkCd;
       this.atkLock = ATTACK_TIME;
-      this.player.play(`attack${this.dir}`);
-      drawAtkFx();
-      this.time.delayedCall(ATTACK_TIME * 1000, () => this.atkFx.clear());
+      this.atkDir = this.dir; // direcao logica travada para o arco visual
+      this.player.play(`attack${faceDir(this.dir)}`);
+      this.time.delayedCall(ATTACK_TIME * 1000, () => { this.atkLock = 0; this.atkFx.clear(); });
       const v = VEC[this.dir];
+      let hitAny = false;
       for (const e of this.enemies) {
-        if (e.hp <= 0) continue;
+        if (e.hp <= 0 || e.dormant) continue;
         const dx = e.s.x - this.player.x, dy = e.s.y - this.player.y;
         const dist = Math.hypot(dx, dy);
         if (dist > HIT_RANGE) continue;
         const facing = dist < 1 || (v[0] * (dx / dist) + v[1] * (dy / dist)) >= HIT_HALF_COS;
         if (!facing) continue;
+        hitAny = true;
         e.hp -= BK.atkDmg;
         e.barFg.setScale(Math.max(0, e.hp) / e.maxHp, 1);
-        this.floatText(e.s.x, e.s.y, `-${BK.atkDmg}`, '#ffe08a');
-        this.sparks(e.s.x, e.s.y, 0xffe08a);
+        this.floatText(e.s.x, e.s.y, `-${BK.atkDmg}`, e.behavior === 'boss' ? '#ff6688' : '#ffe08a', e.behavior === 'boss' ? 22 : 18);
+        this.sparks(e.s.x, e.s.y, e.behavior === 'boss' ? 0xff4466 : 0xffe08a, e.behavior === 'boss' ? 12 : 8, e.behavior === 'boss' ? 55 : 42);
         // Flash branco de impacto (restaura o tint original; morte vira alpha).
         if (e.hp <= 0) {
           e.s.setVelocity(0, 0); e.s.clearTint(); e.s.setAlpha(0.35);
+          this.sparks(e.s.x, e.s.y, e.tint || 0xffffff, 14, 70);
+          if (e.behavior === 'boss') this.cameras.main.flash(120, 255, 220, 180);
         }
         else {
-          e.s.setTintFill(0xffffff);
-          this.time.delayedCall(80, () => { if (e.hp > 0) e.s.setTint(e.tint); });
+          e.s.setTint(0xffffff);
+          if (e.s.setTintMode) e.s.setTintMode(Phaser.TintModes ? Phaser.TintModes.FILL : 0);
+          this.time.delayedCall(80, () => { if (e.hp > 0) { e.s.clearTint(); e.s.setTint(e.tint); } });
         }
-        this.cameras.main.shake(60, 0.002);
       }
+      if (hitAny) { this.hitstop(55); this.cameras.main.shake(70, 0.003); }
+    }
+
+    // Arco animado do ataque: varre o setor frontal durante a trava (substitui a cunha estatica).
+    if (this.atkLock > 0) {
+      const p = 1 - this.atkLock / ATTACK_TIME; // 0..1
+      const v = VEC[this.atkDir ?? this.dir];
+      const a = Math.atan2(v[1], v[0]), half = 0.75;
+      const sweep = -half + (half * 2) * Math.min(1, p * 1.25);
+      this.atkFx.clear();
+      // rastro
+      this.atkFx.fillStyle(0xffdd88, 0.18 * (1 - p * 0.5));
+      this.atkFx.beginPath(); this.atkFx.moveTo(this.player.x, this.player.y);
+      this.atkFx.arc(this.player.x, this.player.y, HIT_RANGE, a - half, a + sweep, false);
+      this.atkFx.closePath(); this.atkFx.fillPath();
+      // lamina brilhante (borda do varrimento)
+      this.atkFx.lineStyle(4, 0xfff4cc, 0.85 * (1 - p * 0.6));
+      this.atkFx.beginPath();
+      this.atkFx.arc(this.player.x, this.player.y, HIT_RANGE - 6, a + sweep - 0.12, a + sweep + 0.04, false);
+      this.atkFx.strokePath();
+      this.atkFx.lineStyle(2, 0xffffff, 0.5);
+      this.atkFx.beginPath();
+      this.atkFx.arc(this.player.x, this.player.y, HIT_RANGE - 14, a - half * 0.2, a + sweep, false);
+      this.atkFx.strokePath();
     }
 
     // Inimigos: 3 comportamentos (mesma arte; diferem em movimentacao/ataque).
@@ -406,6 +455,8 @@ class Arena extends Phaser.Scene {
       b.s.setPosition(1200, 300).setVisible(true);
       b.barBg.setVisible(true); b.barFg.setVisible(true);
       this.showBanner('CHEFE!');
+      this.cameras.main.shake(180, 0.006);
+      this.sparks(1200, 300, 0xff3355, 16, 80);
     }
 
     for (const e of this.enemies) {
@@ -432,7 +483,8 @@ class Arena extends Phaser.Scene {
         vx = Math.cos(pang) * BK.patrolSpeed; vy = Math.sin(pang) * BK.patrolSpeed;
         e.s.setVelocity(vx, vy);
         const edir = dirFromAngle(pang);
-        if (e.s.anims.currentAnim?.key !== `walk${edir}`) e.s.play(`walk${edir}`);
+        const efd = faceDir(edir);
+        if (e.s.anims.currentAnim?.key !== `walk${efd}`) e.s.play(`walk${efd}`);
         e.barBg.setPosition(ex, ey - 64);
         e.barFg.setPosition(ex + e.barOff, ey - 64);
         continue;
@@ -454,7 +506,7 @@ class Arena extends Phaser.Scene {
       } else if (e.behavior === 'boss') {
         // Chefe: persegue; alterna SOCO (area ao redor) e INVESTIDA (dash em linha reta).
         // Abaixo de 50% de HP entra em furia: ataques mais rapidos e velozes.
-        if (!e.rage && e.hp <= e.maxHp / 2) { e.rage = true; e.s.setTint(0xff0033); this.showBanner('FÚRIA!'); }
+        if (!e.rage && e.hp <= e.maxHp / 2) { e.rage = true; e.s.setTint(0xff0033); this.showBanner('FÚRIA!'); this.cameras.main.shake(140, 0.005); this.sparks(ex, ey, 0xff0033, 12, 65); }
         const cd = e.rage ? 1.3 : 2.0;
         const telegraph = e.rage ? 0.6 : 0.85;
         e.stateT = Math.max(0, e.stateT - dt);
@@ -474,21 +526,27 @@ class Arena extends Phaser.Scene {
           if (e.stateT <= 0) {
             e.s.setTint(e.rage ? 0xff0033 : e.tint);
             if (e.pattern === 'slam') {
-              // Onda de choque: area de raio 120 px ao redor do chefe
-              const ring = this.add.circle(ex, ey, 150, 0xff3355, 0.25).setDepth(2);
-              this.tweens.add({ targets: ring, scale: 1.1, alpha: 0, duration: 350, onComplete: () => ring.destroy() });
+              // Onda de choque: area de raio 150 px ao redor do chefe
+              const ring = this.add.circle(ex, ey, 30, 0xff3355, 0.35).setDepth(2).setStrokeStyle(5, 0xff99aa, 0.9);
+              this.tweens.add({ targets: ring, scale: 155 / 30, alpha: 0, duration: 420, onComplete: () => ring.destroy() });
+              const ring2 = this.add.circle(ex, ey, 30, 0xffffff, 0.12).setDepth(2);
+              this.tweens.add({ targets: ring2, scale: 120 / 30, alpha: 0, duration: 320, onComplete: () => ring2.destroy() });
+              this.cameras.main.shake(120, 0.005);
+              this.sparks(ex, ey, 0xff5577, 10, 60);
               if (d < 150) this.hurtPlayer(20);
               e.pattern = 'charge';
               e.state = 'idle'; e.stateT = cd;
             } else {
               e.state = 'dash'; e.stateT = 0.5; e.hitOnce = false;
+              this.dust(ex, ey, 4);
             }
           }
         } else if (e.state === 'dash') {
           showWalk = false;
           const ds = e.rage ? 380 : 320;
           vx = e.ax * ds; vy = e.ay * ds;
-          if (d < 60 && !e.hitOnce) { e.hitOnce = true; this.hurtPlayer(18); }
+          if (time - (e._dashDust || 0) > 50) { e._dashDust = time; this.dust(ex, ey, 2); }
+          if (d < 60 && !e.hitOnce) { e.hitOnce = true; this.hurtPlayer(18); this.cameras.main.shake(120, 0.006); }
           if (e.stateT <= 0) {
             e.pattern = 'slam';
             e.state = 'idle'; e.stateT = cd;
@@ -520,7 +578,8 @@ class Arena extends Phaser.Scene {
       }
       e.s.setVelocity(vx, vy);
       const edir = dirFromAngle(ang); // mesmo mapeamento do jogador
-      if (showWalk && e.s.anims.currentAnim?.key !== `walk${edir}`) e.s.play(`walk${edir}`);
+      const efd = faceDir(edir);
+      if (showWalk && e.s.anims.currentAnim?.key !== `walk${efd}`) e.s.play(`walk${efd}`);
       e.barBg.setPosition(ex, ey - 64);
       e.barFg.setPosition(ex + e.barOff, ey - 64);
     }
