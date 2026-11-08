@@ -133,11 +133,25 @@ class Arena extends Phaser.Scene {
     this.atkFx = this.add.graphics().setDepth(3);
 
     // 3 inimigos com comportamentos distintos (mesma arte; diferem tint/comportamento).
+    // Variedade de encontros: posicoes sorteadas por partida e 1 elite ocasional.
     this.enemies = [];
+    const slots = {
+      chaser:  [[1500,800],[1650,1100],[1400,500]],
+      flanker: [[600,600],[450,1000],[800,350]],
+      stalker: [[1800,1200],[1950,750],[1700,1450]],
+    };
+    const pick = (arr) => arr[Phaser.Math.Between(0, arr.length - 1)];
+    const elitePick = Phaser.Math.Between(0, 2); // 1 inimigo elite por partida (variedade)
+    const base = [
+      { ...(() => { const p = pick(slots.chaser); return {x:p[0],y:p[1]}; })(), tint: 0xff8a8a, behavior: 'chaser',  hp: 60, side: 1  },
+      { ...(() => { const p = pick(slots.flanker); return {x:p[0],y:p[1]}; })(), tint: 0xffb86a, behavior: 'flanker', hp: 50, side: Phaser.Math.Between(0,1)?1:-1 },
+      { ...(() => { const p = pick(slots.stalker); return {x:p[0],y:p[1]}; })(), tint: 0xc9a6ff, behavior: 'stalker', hp: 80, side: -1 },
+    ];
+    base.forEach((sp, i) => {
+      if (i === elitePick) { sp.elite = true; sp.hp = Math.round(sp.hp * 1.4); sp.tint = 0xfff0a0; }
+    });
     const spawns = [
-      { x: 1500, y: 800,  tint: 0xff8a8a, behavior: 'chaser',  hp: 60, side: 1  },
-      { x: 600,  y: 600,  tint: 0xffb86a, behavior: 'flanker', hp: 50, side: 1  },
-      { x: 1800, y: 1200, tint: 0xc9a6ff, behavior: 'stalker', hp: 80, side: -1 },
+      ...base,
       // Chefe: comeca adormecido fora do mapa; ativa quando os outros 3 caem.
       { x: -400, y: -400, tint: 0xff3355, behavior: 'boss', hp: 150, side: 1, dormant: true },
     ];
@@ -162,11 +176,14 @@ class Arena extends Phaser.Scene {
         ag.addColorStop(1, 'rgba(0,0,0,0)');
         ta.context.fillStyle = ag; ta.context.fillRect(0, 0, 96, 96); ta.refresh();
       }
-      const auraColor = isBoss ? 0xff3355 : sp.tint;
-      const aura = this.add.image(sp.x, sp.y, 'enemyAura').setDepth(0.8).setAlpha(isBoss ? 0.3 : 0.18).setTint(auraColor).setScale(isBoss ? 1.8 : 1.15);
+      const isElite = !!sp.elite;
+      const auraColor = isBoss ? 0xff3355 : (isElite ? 0xffd966 : sp.tint);
+      const aura = this.add.image(sp.x, sp.y, 'enemyAura').setDepth(0.8).setAlpha(isBoss ? 0.3 : (isElite ? 0.3 : 0.18)).setTint(auraColor).setScale(isBoss ? 1.8 : (isElite ? 1.65 : 1.15));
       if (Phaser.BlendModes && Phaser.BlendModes.ADD !== undefined) aura.setBlendMode(Phaser.BlendModes.ADD);
       if (sp.dormant) aura.setVisible(false);
-      this.enemies[this.enemies.length - 1].aura = aura;
+      const en = this.enemies[this.enemies.length - 1];
+      en.aura = aura; en.elite = isElite;
+      if (isElite) this.floatText(sp.x, sp.y - 80, 'ELITE', '#ffd966', 14);
       this.physics.add.collider(this.player, s);
     }
     this.boss = this.enemies.find((e) => e.behavior === 'boss');
@@ -199,7 +216,10 @@ class Arena extends Phaser.Scene {
       gg.addColorStop(1, 'rgba(0,0,0,0)');
       tg.context.fillStyle = gg; tg.context.fillRect(0, 0, 64, 64); tg.refresh();
     }
-    for (const [px, py] of [[500, 1200], [1900, 600]]) {
+    const potionSpots = [[500, 1200], [1900, 600], [1100, 1500], [300, 900], [2100, 1100]];
+    const chosen = potionSpots.slice(0, 2);
+    if (Math.random() < 0.5) chosen.push(potionSpots[2 + Phaser.Math.Between(0, 2)]);
+    for (const [px, py] of chosen) {
       const glow = this.add.image(px, py, 'potionGlow').setDepth(0.9).setAlpha(0.75).setScale(1);
       if (Phaser.BlendModes && Phaser.BlendModes.ADD !== undefined) glow.setBlendMode(Phaser.BlendModes.ADD);
       const ps = this.add.sprite(px, py, 'potion').setScale(1.25).setDepth(1);
@@ -574,8 +594,8 @@ class Arena extends Phaser.Scene {
           if (e.s.body) e.s.body.enable = false;
           e.barBg.setVisible(false); e.barFg.setVisible(false);
           if (e.aura) e.aura.setVisible(false);
-          this.spawnSoul(e.s.x, e.s.y, e.behavior === 'boss');
-          this.sparks(e.s.x, e.s.y, e.tint || 0xffffff, e.behavior === 'boss' ? 22 : 14, e.behavior === 'boss' ? 90 : 70);
+          this.spawnSoul(e.s.x, e.s.y, e.behavior === 'boss' || !!e.elite);
+          this.sparks(e.s.x, e.s.y, e.tint || 0xffffff, e.behavior === 'boss' ? 22 : (e.elite ? 18 : 14), e.behavior === 'boss' ? 90 : (e.elite ? 80 : 70));
           this.dust(e.s.x, e.s.y, e.behavior === 'boss' ? 8 : 4);
           this.tweens.add({ targets: e.s, alpha: 0, scale: e.behavior === 'boss' ? 0.35 : 0.3, y: e.s.y + 8, duration: e.behavior === 'boss' ? 700 : 450, ease: 'Quad.easeIn' });
           if (e.behavior === 'boss') this.cameras.main.flash(140, 255, 220, 180);
