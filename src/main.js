@@ -153,6 +153,20 @@ class Arena extends Phaser.Scene {
         hx: sp.x, hy: sp.y, wx: sp.x, wy: sp.y, alerted: false,
         barOff: -bw / 2, dormant: !!sp.dormant, rage: false, pattern: 'slam', ax: 0, ay: 0, hitOnce: false });
       if (sp.dormant) { s.setVisible(false); barBg.setVisible(false); barFg.setVisible(false); }
+      // Aura por tipo (vida no mundo): glow aditivo seguindo o inimigo.
+      if (!this.textures.exists('enemyAura')) {
+        const ta = this.textures.createCanvas('enemyAura', 96, 96);
+        const ag = ta.context.createRadialGradient(48, 48, 4, 48, 48, 48);
+        ag.addColorStop(0, 'rgba(255,255,255,0.22)');
+        ag.addColorStop(0.45, 'rgba(255,255,255,0.08)');
+        ag.addColorStop(1, 'rgba(0,0,0,0)');
+        ta.context.fillStyle = ag; ta.context.fillRect(0, 0, 96, 96); ta.refresh();
+      }
+      const auraColor = isBoss ? 0xff3355 : sp.tint;
+      const aura = this.add.image(sp.x, sp.y, 'enemyAura').setDepth(0.8).setAlpha(isBoss ? 0.3 : 0.18).setTint(auraColor).setScale(isBoss ? 1.8 : 1.15);
+      if (Phaser.BlendModes && Phaser.BlendModes.ADD !== undefined) aura.setBlendMode(Phaser.BlendModes.ADD);
+      if (sp.dormant) aura.setVisible(false);
+      this.enemies[this.enemies.length - 1].aura = aura;
       this.physics.add.collider(this.player, s);
     }
     this.boss = this.enemies.find((e) => e.behavior === 'boss');
@@ -202,14 +216,19 @@ class Arena extends Phaser.Scene {
     this.keys = this.input.keyboard.addKeys('W,A,S,D,J,K');
     this.dir = 0; this.hp = 100;
     this.atkCd = 0; this.dodgeCd = 0; this.enemyCd = 0; this.dodging = false; this.atkLock = 0;
-    this._hud = { hp: -1, ehp: -1, dodge: -1 };
+    this._hud = { hp: -1, ehp: -1, dodge: -1, souls: -1 };
     this.over = false;
+    this.souls = 0;
+    this.wave = 1;
+    this.wave2Pending = false;
+    this.soulDrops = [];
 
     this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
 
     // Atmosfera (Diablo/Dark Eden): vinheta fixa + luz suave ao redor do jogador.
     this.setupAtmosphere();
+    this.setupAmbience();
 
     // Multi-toque (iPhone): ponteiros extras para joystick + ATK/ESQ simultaneos
     this.input.addPointer(3);
@@ -272,6 +291,94 @@ class Arena extends Phaser.Scene {
     });
 
     // Ataque dos inimigos: por inimigo (ver update), sem timer global.
+  }
+
+  setupAmbience() {
+    // Motes ambientais (vida no mundo): particulas lentas e sutis.
+    this.motes = [];
+    for (let i = 0; i < 22; i++) {
+      const m = this.add.ellipse(
+        Phaser.Math.Between(0, WORLD_W), Phaser.Math.Between(0, WORLD_H),
+        Phaser.Math.Between(2, 5), Phaser.Math.Between(2, 5),
+        0xc8d8f0, Phaser.Math.FloatBetween(0.04, 0.12)
+      ).setDepth(2.4).setScrollFactor(0.9);
+      m._vx = Phaser.Math.FloatBetween(-6, 6); m._vy = Phaser.Math.FloatBetween(-10, -2);
+      m._baseA = m.alpha;
+      this.motes.push(m);
+    }
+    // Neblina baixa sutil
+    this.fogBands = [];
+    for (let i = 0; i < 3; i++) {
+      const f = this.add.ellipse(WORLD_W * (0.2 + i * 0.3), WORLD_H * (0.55 + i * 0.12), 520, 90, 0x8090b0, 0.035)
+        .setDepth(0.6).setScrollFactor(0.6);
+      f._ox = f.x;
+      this.fogBands.push(f);
+    }
+  }
+
+  spawnSoul(x, y, big) {
+    if (!this.textures.exists('soulOrb')) {
+      const t = this.textures.createCanvas('soulOrb', 32, 32);
+      const g = t.context.createRadialGradient(16, 16, 2, 16, 16, 16);
+      g.addColorStop(0, 'rgba(220,240,255,0.95)');
+      g.addColorStop(0.45, 'rgba(120,180,255,0.55)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      t.context.fillStyle = g; t.context.fillRect(0, 0, 32, 32); t.refresh();
+    }
+    const sc = big ? 1.35 : 1;
+    const s = this.add.image(x, y - 10, 'soulOrb').setDepth(2.2).setScale(sc).setAlpha(0.95);
+    if (Phaser.BlendModes && Phaser.BlendModes.ADD !== undefined) s.setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: s, y: y - 28, duration: 280, ease: 'Quad.easeOut' });
+    this.soulDrops.push({ s, by: y - 28, t: Math.random() * 1000, big: !!big });
+  }
+
+  spawnBonusWave() {
+    // Progressao: onda bonus mais dificil (mesmas mecanicas; HP +30%). Sem mexer no balanceamento da Onda 1.
+    const spawns = [
+      { x: 1600, y: 500,  tint: 0xff6666, behavior: 'chaser',  hp: 78, side: 1  },
+      { x: 500,  y: 1300, tint: 0xffaa55, behavior: 'flanker', hp: 65, side: -1 },
+      { x: 1900, y: 1400, tint: 0xd39bff, behavior: 'stalker', hp: 104, side: 1 },
+    ];
+    for (const sp of spawns) {
+      const s = this.physics.add.sprite(sp.x, sp.y, 'walk_4_0').setScale(0.5).setDepth(1).setTint(sp.tint);
+      s.body.setCircle(20, 108, 188).setImmovable(true);
+      const bw = 36;
+      const barBg = this.add.rectangle(0, -64, bw, 5, 0x222222, 0.85).setDepth(3);
+      const barFg = this.add.rectangle(-bw / 2, -64, bw, 5, 0xff5555, 1).setOrigin(0, 0.5).setDepth(4);
+      if (!this.textures.exists('enemyAura')) {
+        const ta = this.textures.createCanvas('enemyAura', 96, 96);
+        const ag = ta.context.createRadialGradient(48, 48, 4, 48, 48, 48);
+        ag.addColorStop(0, 'rgba(255,255,255,0.22)'); ag.addColorStop(0.45, 'rgba(255,255,255,0.08)'); ag.addColorStop(1, 'rgba(0,0,0,0)');
+        ta.context.fillStyle = ag; ta.context.fillRect(0, 0, 96, 96); ta.refresh();
+      }
+      const aura = this.add.image(sp.x, sp.y, 'enemyAura').setDepth(0.8).setAlpha(0.22).setTint(sp.tint).setScale(1.25);
+      if (Phaser.BlendModes && Phaser.BlendModes.ADD !== undefined) aura.setBlendMode(Phaser.BlendModes.ADD);
+      this.enemies.push({ s, hp: sp.hp, maxHp: sp.hp, tint: sp.tint, behavior: sp.behavior, side: sp.side,
+        atkCd: Math.random() * 0.5, state: 'approach', stateT: 0, animT: 0, barBg, barFg,
+        hx: sp.x, hy: sp.y, wx: sp.x, wy: sp.y, alerted: true, aura,
+        barOff: -bw / 2, dormant: false, rage: false, pattern: 'slam', ax: 0, ay: 0, hitOnce: false });
+      this.physics.add.collider(this.player, s);
+      if (this.blocks) this.physics.add.collider(s, this.blocks);
+      for (let i = 0; i < this.enemies.length - 1; i++) this.physics.add.collider(this.enemies[i].s, s);
+    }
+    // Uma pocao extra como recompensa de progressao
+    if (!this.textures.exists('potion')) {
+      const pg = this.add.graphics(); pg.fillStyle(0x2ecc71, 1); pg.fillCircle(12, 12, 10);
+      pg.fillStyle(0xb6ffd8, 0.95); pg.fillCircle(9, 9, 4); pg.fillStyle(0xd5f5e3, 1); pg.fillRect(9, 4, 6, 16); pg.fillRect(4, 9, 16, 6);
+      pg.fillStyle(0x145a32, 1); pg.fillRoundedRect(7, 1, 10, 5, 2); pg.generateTexture('potion', 24, 24); pg.destroy();
+    }
+    if (!this.textures.exists('potionGlow')) {
+      const tg = this.textures.createCanvas('potionGlow', 64, 64);
+      const gg = tg.context.createRadialGradient(32, 32, 2, 32, 32, 32);
+      gg.addColorStop(0, 'rgba(120,255,170,0.45)'); gg.addColorStop(0.5, 'rgba(60,220,120,0.18)'); gg.addColorStop(1, 'rgba(0,0,0,0)');
+      tg.context.fillStyle = gg; tg.context.fillRect(0, 0, 64, 64); tg.refresh();
+    }
+    const px = 1200, py = 900;
+    const glow = this.add.image(px, py, 'potionGlow').setDepth(0.9).setAlpha(0.75).setScale(1);
+    if (Phaser.BlendModes && Phaser.BlendModes.ADD !== undefined) glow.setBlendMode(Phaser.BlendModes.ADD);
+    const ps = this.add.sprite(px, py, 'potion').setScale(1.25).setDepth(1);
+    this.potions.push({ s: ps, glow, t: Math.random() * 1000, by: py });
+    this.floatText(px, py - 40, 'Onda Bônus!', '#ffdd88', 22);
   }
 
   setupAtmosphere() {
@@ -466,6 +573,8 @@ class Arena extends Phaser.Scene {
           e.s.setVelocity(0, 0); e.s.clearTint();
           if (e.s.body) e.s.body.enable = false;
           e.barBg.setVisible(false); e.barFg.setVisible(false);
+          if (e.aura) e.aura.setVisible(false);
+          this.spawnSoul(e.s.x, e.s.y, e.behavior === 'boss');
           this.sparks(e.s.x, e.s.y, e.tint || 0xffffff, e.behavior === 'boss' ? 22 : 14, e.behavior === 'boss' ? 90 : 70);
           this.dust(e.s.x, e.s.y, e.behavior === 'boss' ? 8 : 4);
           this.tweens.add({ targets: e.s, alpha: 0, scale: e.behavior === 'boss' ? 0.35 : 0.3, y: e.s.y + 8, duration: e.behavior === 'boss' ? 700 : 450, ease: 'Quad.easeIn' });
@@ -513,6 +622,7 @@ class Arena extends Phaser.Scene {
       b.dormant = false; b.alerted = true; b.state = 'approach'; b.stateT = 1.5;
       b.s.setPosition(1200, 300).setVisible(true);
       b.barBg.setVisible(true); b.barFg.setVisible(true);
+      if (b.aura) b.aura.setVisible(true);
       this.showBanner('CHEFE!');
       this.cameras.main.shake(180, 0.006);
       this.sparks(1200, 300, 0xff3355, 16, 80);
@@ -546,6 +656,7 @@ class Arena extends Phaser.Scene {
         if (e.s.anims.currentAnim?.key !== `walk${efd}`) e.s.play(`walk${efd}`);
         e.barBg.setPosition(ex, ey - 64);
         e.barFg.setPosition(ex + e.barOff, ey - 64);
+        if (e.aura) e.aura.setPosition(ex, ey + 6).setAlpha(0.14 + Math.sin(time * 0.004 + ex) * 0.03);
         continue;
       }
       if (e.behavior === 'chaser') {
@@ -654,6 +765,7 @@ class Arena extends Phaser.Scene {
       if (showWalk && e.s.anims.currentAnim?.key !== `walk${efd}`) e.s.play(`walk${efd}`);
       e.barBg.setPosition(ex, ey - 64);
       e.barFg.setPosition(ex + e.barOff, ey - 64);
+      if (e.aura) e.aura.setPosition(ex, ey + 6).setAlpha((e.behavior === 'boss' ? (e.rage ? 0.38 : 0.28) : 0.18) + Math.sin(time * 0.005 + ex) * 0.04);
     }
 
     // Sombras dinamicas sob os personagens (pes a ~+52 px abaixo do centro).
@@ -665,6 +777,17 @@ class Arena extends Phaser.Scene {
     }
     // Luz do heroi segue o jogador (atmosfera).
     if (this.heroLight) this.heroLight.setPosition(this.player.x, this.player.y);
+
+    // Motes e neblina (vida no mundo)
+    if (this.motes) for (const m of this.motes) {
+      m.x += (m._vx || 0) * dt; m.y += (m._vy || -4) * dt;
+      m.alpha = (m._baseA || 0.08) + Math.sin(time * 0.001 + m.x * 0.01) * 0.03;
+      if (m.y < -20) m.y = WORLD_H + 20;
+      if (m.x < -20) m.x = WORLD_W + 20; if (m.x > WORLD_W + 20) m.x = -20;
+    }
+    if (this.fogBands) for (let i = 0; i < this.fogBands.length; i++) {
+      const f = this.fogBands[i]; f.x = f._ox + Math.sin(time * 0.00018 + i) * 80;
+    }
 
     // Pocao: coleta por distancia (ignora o offset dos pes do corpo fisico).
     for (let i = this.potions.length - 1; i >= 0; i--) {
@@ -684,22 +807,55 @@ class Arena extends Phaser.Scene {
       }
     }
 
-    // Vitoria: todos os inimigos derrotados. Tempo registrado e recorde salvo.
+    // Almas (progressao): caem dos inimigos, curam pouco e contam no HUD.
+    for (let i = this.soulDrops.length - 1; i >= 0; i--) {
+      const o = this.soulDrops[i];
+      o.s.y = o.by + Math.sin(time * 0.004 + o.t) * 3;
+      o.s.setAlpha(0.75 + Math.sin(time * 0.006 + o.t) * 0.2);
+      if (Phaser.Math.Distance.Between(this.player.x, this.player.y, o.s.x, o.s.y) < 46) {
+        this.souls++;
+        this.hp = Math.min(100, this.hp + 10);
+        this.floatText(o.s.x, o.s.y, '+10 HP · Alma', '#9fd0ff', 16);
+        this.sparks(o.s.x, o.s.y, 0x88ccff, 8, 34);
+        o.s.destroy();
+        this.soulDrops.splice(i, 1);
+      }
+    }
+
+    // Progressao: Onda 1 concluida (3 + chefe) -> Onda Bonus; Onda Bonus concluida -> vitoria final.
     if (this.enemies.every((e) => e.hp <= 0)) {
-      this.elapsed = this.time.now - this.startedAt;
-      const best = Number(localStorage.getItem('pocBestMs')) || 0;
-      if (!best || this.elapsed < best) localStorage.setItem('pocBestMs', String(Math.round(this.elapsed)));
-      this.showEnd('VITÓRIA!', `Tempo ${fmtTime(this.elapsed)} · Recorde ${fmtTime(!best || this.elapsed < best ? this.elapsed : best)}`);
-      return;
+      if (this.wave === 1) {
+        if (!this.wave2Pending) {
+          this.wave2Pending = true;
+          this.showBanner('ONDA BÔNUS');
+          this.time.delayedCall(1800, () => {
+            if (this.over) return;
+            this.wave = 2; this.wave2Pending = false;
+            this.spawnBonusWave();
+          });
+        }
+        return; // aguarda transicao (nao repete spawn)
+      }
+      if (this.wave === 2) {
+        this.elapsed = this.time.now - this.startedAt;
+        const best = Number(localStorage.getItem('pocBestMs')) || 0;
+        if (!best || this.elapsed < best) localStorage.setItem('pocBestMs', String(Math.round(this.elapsed)));
+        this.showEnd('PURIFICADO!', `Tempo ${fmtTime(this.elapsed)} · Recorde ${fmtTime(!best || this.elapsed < best ? this.elapsed : best)} · Almas ${this.souls}`);
+        return;
+      }
     }
 
     // HUD: escreve no DOM apenas quando muda (evita layout/repaint a 60 fps).
     this.elapsed = this.time.now - this.startedAt;
     const hpTxt = `Mago HP ${Math.max(0, this.hp)}`;
-    const ehpTxt = `Abates ${this.kills}/${this.enemies.length} · ${fmtTime(this.elapsed)} · Poções ${this.potions.length}`;
+    const alive = this.enemies.filter((e) => e.hp > 0 && !e.dormant).length;
+    const waveTxt = this.wave === 2 ? ' · Onda Bônus' : '';
+    const ehpTxt = `Abates ${this.kills}/${this.enemies.length}${waveTxt} · Restam ${alive} · ${fmtTime(this.elapsed)}`;
+    const soulsTxt = `Almas ${this.souls} · Poções ${this.potions.length}`;
     const dodgePct = Math.round((1 - this.dodgeCd / 0.8) * 100);
     if (this._hud.hp !== this.hp) { this._hud.hp = this.hp; document.getElementById('hp').textContent = hpTxt; }
     if (this._hud.ehp !== ehpTxt) { this._hud.ehp = ehpTxt; document.getElementById('ehp').textContent = ehpTxt; }
+    if (this._hud.souls !== soulsTxt) { this._hud.souls = soulsTxt; const el = document.getElementById('souls'); if (el) el.textContent = soulsTxt; }
     if (this._hud.dodge !== dodgePct) { this._hud.dodge = dodgePct; document.getElementById('dodgeFill').style.width = `${dodgePct}%`; }
   }
 }
