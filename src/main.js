@@ -235,12 +235,14 @@ class Arena extends Phaser.Scene {
     }
 
     this.cursors = this.input.keyboard.createCursorKeys();
-    this.keys = this.input.keyboard.addKeys('W,A,S,D,J,K');
+    this.keys = this.input.keyboard.addKeys('W,A,S,D,J,K,P');
     this.dir = 0; this.hp = 100;
     this.atkCd = 0; this.dodgeCd = 0; this.enemyCd = 0; this.dodging = false; this.atkLock = 0;
     this._hud = { hp: -1, ehp: -1, dodge: -1, souls: -1 };
     this.over = false;
+    this.paused = false;
     this.souls = 0;
+    this.totalSouls = Number(localStorage.getItem('pocTotalSouls')) || 0;
     this.wave = 1;
     this.wave2Pending = false;
     this.soulDrops = [];
@@ -301,6 +303,18 @@ class Arena extends Phaser.Scene {
       .setOrigin(0).setDepth(18).setScrollFactor(0).setInteractive().on('pointerdown', () => { this.touchAttack = true; });
     this.btnDodge = this.add.text(p0.x, p0.y2, 'ESQ', style)
       .setOrigin(0).setDepth(18).setScrollFactor(0).setInteractive().on('pointerdown', () => { this.touchDodge = true; });
+    // Botao de pausa (acessivel no iPhone)
+    this.btnPause = this.add.text(cam.width - 16, 12, 'II', { fontSize: '16px', backgroundColor: '#2a2f38', color: '#e8e2d2', padding: {x:10,y:8} })
+      .setOrigin(1, 0).setDepth(18).setScrollFactor(0).setInteractive().on('pointerdown', () => { this.setPaused(!this.paused); });
+    this.pauseUi = {
+      bg: this.add.rectangle(cam.width/2, cam.height/2, cam.width, cam.height, 0x000000, 0.55).setOrigin(0.5).setScrollFactor(0).setDepth(23).setVisible(false),
+      t1: this.add.text(cam.width/2, cam.height/2 - 28, 'PAUSADO', { fontSize: '34px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(24).setVisible(false),
+      t2: this.add.text(cam.width/2, cam.height/2 + 14, 'P ou toque: continuar · R: reiniciar', { fontSize: '16px', color: '#d8d0bf' }).setOrigin(0.5).setScrollFactor(0).setDepth(24).setVisible(false),
+    };
+    this.pauseUi.bg.setInteractive();
+    this.pauseUi.bg.on('pointerdown', () => { if (this.paused) this.setPaused(false); });
+    this.input.keyboard.on('keydown-P', () => { if (!this.over) this.setPaused(!this.paused); });
+    this.input.keyboard.on('keydown-R', () => { if (this.paused) this.scene.restart(); });
     this.scale.on('resize', (gameSize) => {
       const p = pos(gameSize.width, gameSize.height);
       this.btnAtk.setPosition(p.x, p.y1);
@@ -309,6 +323,12 @@ class Arena extends Phaser.Scene {
       if (this.atmoVignette) {
         this.atmoVignette.setPosition(gameSize.width / 2, gameSize.height / 2);
         this.atmoVignette.setDisplaySize(gameSize.width, gameSize.height);
+      }
+      if (this.btnPause) this.btnPause.setPosition(gameSize.width - 16, 12);
+      if (this.pauseUi) {
+        this.pauseUi.bg.setPosition(gameSize.width/2, gameSize.height/2).setSize(gameSize.width, gameSize.height);
+        this.pauseUi.t1.setPosition(gameSize.width/2, gameSize.height/2 - 28);
+        this.pauseUi.t2.setPosition(gameSize.width/2, gameSize.height/2 + 14);
       }
     });
 
@@ -487,6 +507,20 @@ class Arena extends Phaser.Scene {
     }
   }
 
+  setPaused(on, silent) {
+    if (this.over) return;
+    this.paused = !!on;
+    this.physics.world.isPaused = this.paused;
+    if (this.pauseUi) {
+      this.pauseUi.bg.setVisible(this.paused);
+      this.pauseUi.t1.setVisible(this.paused);
+      this.pauseUi.t2.setVisible(this.paused);
+      if (this.pauseUi.bg.input) this.pauseUi.bg.input.enabled = this.paused;
+    }
+    if (this.btnPause) this.btnPause.setText(this.paused ? '▶' : 'II');
+    if (this.paused && !silent) { this.player.setVelocity(0, 0); for (const e of this.enemies) e.s.setVelocity(0, 0); }
+  }
+
   hurtPlayer(dmg, source) {
     if (this.dodging || this.over) return;
     this.hp -= dmg;
@@ -494,12 +528,17 @@ class Arena extends Phaser.Scene {
     this.floatText(this.player.x, this.player.y, `-${dmg}`, '#ff6b6b', 22);
     this.damageVignette();
     this.cameras.main.shake(100, 0.0045);
-    if (this.hp <= 0) this.showEnd('DERROTA', `Causa: ${this.lastHitBy} · Tempo ${fmtTime(this.time.now - this.startedAt)} · Almas ${this.souls} · Abates ${this.kills}`);
+    if (this.hp <= 0) this.showEnd('DERROTA', `Causa: ${this.lastHitBy} · Tempo ${fmtTime(this.time.now - this.startedAt)} · Almas ${this.souls} (total ${ (Number(localStorage.getItem('pocTotalSouls'))||0) + this.souls })`);
   }
 
   showEnd(title, sub) {
     if (this.over) return;
+    // Progressao persistente (leve): acumula almas entre partidas
+    this.totalSouls = (Number(localStorage.getItem('pocTotalSouls')) || 0) + this.souls;
+    localStorage.setItem('pocTotalSouls', String(this.totalSouls));
+    if (this.souls > (Number(localStorage.getItem('pocBestSouls')) || 0)) localStorage.setItem('pocBestSouls', String(this.souls));
     this.over = true;
+    if (this.paused) this.setPaused(false, true);
     this.player.setVelocity(0, 0);
     for (const e of this.enemies) e.s.setVelocity(0, 0);
     const cam = this.cameras.main;
@@ -516,6 +555,7 @@ class Arena extends Phaser.Scene {
 
   update(time, delta) {
     if (this.over) return; // tela de fim: so reinicia (R ou toque)
+    if (this.paused) return;
     const dt = delta / 1000;
     this.atkCd = Math.max(0, this.atkCd - dt);
     this.dodgeCd = Math.max(0, this.dodgeCd - dt);
@@ -894,7 +934,7 @@ class Arena extends Phaser.Scene {
         this.elapsed = this.time.now - this.startedAt;
         const best = Number(localStorage.getItem('pocBestMs')) || 0;
         if (!best || this.elapsed < best) localStorage.setItem('pocBestMs', String(Math.round(this.elapsed)));
-        this.showEnd('PURIFICADO!', `Tempo ${fmtTime(this.elapsed)} · Recorde ${fmtTime(!best || this.elapsed < best ? this.elapsed : best)} · Almas ${this.souls}`);
+        this.showEnd('PURIFICADO!', `Tempo ${fmtTime(this.elapsed)} · Recorde ${fmtTime(!best || this.elapsed < best ? this.elapsed : best)} · Almas ${this.souls} (total ${ (Number(localStorage.getItem('pocTotalSouls'))||0) + this.souls })`);
         return;
       }
     }
@@ -905,7 +945,7 @@ class Arena extends Phaser.Scene {
     const alive = this.enemies.filter((e) => e.hp > 0 && !e.dormant).length;
     const waveTxt = this.wave === 2 ? ' · Onda Bônus' : '';
     const ehpTxt = `Abates ${this.kills}/${this.enemies.length}${waveTxt} · Restam ${alive} · ${fmtTime(this.elapsed)}`;
-    const soulsTxt = `Almas ${this.souls} · Poções ${this.potions.length}`;
+    const soulsTxt = `Almas ${this.souls} · Total ${this.totalSouls} · Poções ${this.potions.length}`;
     const dodgePct = Math.round((1 - this.dodgeCd / 0.8) * 100);
     if (this._hud.hp !== this.hp) { this._hud.hp = this.hp; document.getElementById('hp').textContent = hpTxt; }
     if (this._hud.ehp !== ehpTxt) { this._hud.ehp = ehpTxt; document.getElementById('ehp').textContent = ehpTxt; }
