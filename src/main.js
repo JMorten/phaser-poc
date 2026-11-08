@@ -131,6 +131,8 @@ class Arena extends Phaser.Scene {
 
     // Efeito transiente do setor de ataque (mundo, acima dos personagens)
     this.atkFx = this.add.graphics().setDepth(3);
+    // Indicadores de ameaca/alcance (clareza de combate)
+    this.threatFx = this.add.graphics().setDepth(2.8);
 
     // 3 inimigos com comportamentos distintos (mesma arte; diferem tint/comportamento).
     // Variedade de encontros: posicoes sorteadas por partida e 1 elite ocasional.
@@ -485,13 +487,14 @@ class Arena extends Phaser.Scene {
     }
   }
 
-  hurtPlayer(dmg) {
+  hurtPlayer(dmg, source) {
     if (this.dodging || this.over) return;
     this.hp -= dmg;
+    this.lastHitBy = source || 'inimigo';
     this.floatText(this.player.x, this.player.y, `-${dmg}`, '#ff6b6b', 22);
     this.damageVignette();
     this.cameras.main.shake(100, 0.0045);
-    if (this.hp <= 0) this.showEnd('DERROTA');
+    if (this.hp <= 0) this.showEnd('DERROTA', `Causa: ${this.lastHitBy} · Tempo ${fmtTime(this.time.now - this.startedAt)} · Almas ${this.souls} · Abates ${this.kills}`);
   }
 
   showEnd(title, sub) {
@@ -635,6 +638,15 @@ class Arena extends Phaser.Scene {
     // Inimigos: 3 comportamentos (mesma arte; diferem em movimentacao/ataque).
     // Abates contados aqui (valem para qualquer causa de morte).
     for (const e of this.enemies) if (e.hp <= 0 && !e.dead) { e.dead = true; this.kills++; }
+    if (this.threatFx) {
+      this.threatFx.clear();
+      // Indicador sutil de alcance/ameaca ao redor do jogador
+      const threatNear = this.enemies.some((e) => e.hp > 0 && !e.dormant && e.alerted && Phaser.Math.Distance.Between(this.player.x, this.player.y, e.s.x, e.s.y) < 180);
+      if (threatNear) {
+        this.threatFx.lineStyle(1, 0xffdd88, 0.12);
+        this.threatFx.strokeCircle(this.player.x, this.player.y, HIT_RANGE);
+      }
+    }
 
     // Chefe ativa quando todos os outros inimigos caem.
     if (this.boss && this.boss.dormant && this.enemies.filter((e) => e !== this.boss).every((e) => e.hp <= 0)) {
@@ -685,7 +697,7 @@ class Arena extends Phaser.Scene {
         // Aviso sutil: brilho quando esta no alcance e pronto para golpear.
         if (d < 90 && e.atkCd <= 0.15 && !e._wind) { e._wind = true; e.s.setTint(0xffdddd); this.time.delayedCall(120, () => { e._wind = false; if (e.hp > 0 && !e.dead) e.s.setTint(e.tint); }); }
         if (d < 75 && e.atkCd <= 0) {
-          this.hurtPlayer(BK.chaseDmg); e.atkCd = BK.chaseCd;
+          this.hurtPlayer(BK.chaseDmg, e.elite ? 'Perseguidor de elite' : 'Perseguidor'); e.atkCd = BK.chaseCd;
           e.s.setScale(0.58).setTint(0xffffff);
           this.tweens.add({ targets: e.s, scale: 0.5, duration: 120, onComplete: () => { if (e.hp > 0) e.s.setTint(e.tint); } });
           this.sparks((ex + px) / 2, (ey + py) / 2, 0xff8888, 5, 22);
@@ -701,7 +713,7 @@ class Arena extends Phaser.Scene {
         }
         if (d < 90 && e.atkCd <= 0.15 && !e._wind) { e._wind = true; e.s.setTint(0xffe0c0); this.time.delayedCall(120, () => { e._wind = false; if (e.hp > 0 && !e.dead) e.s.setTint(e.tint); }); }
         if (d < 75 && e.atkCd <= 0) {
-          this.hurtPlayer(BK.flankDmg); e.atkCd = BK.flankCd;
+          this.hurtPlayer(BK.flankDmg, e.elite ? 'Flanqueador de elite' : 'Flanqueador'); e.atkCd = BK.flankCd;
           e.s.setScale(0.58).setTint(0xffffff);
           this.tweens.add({ targets: e.s, scale: 0.5, duration: 120, onComplete: () => { if (e.hp > 0) e.s.setTint(e.tint); } });
           this.sparks((ex + px) / 2, (ey + py) / 2, 0xffc080, 5, 22);
@@ -725,7 +737,21 @@ class Arena extends Phaser.Scene {
           showWalk = false;
           e.animT += dt;
           e.s.setTint(e.animT % 0.16 < 0.08 ? 0xffffff : (e.rage ? 0xff0033 : e.tint));
-          if (e.pattern === 'charge') { e.ax = Math.cos(ang); e.ay = Math.sin(ang); } // mira ate o fim
+          if (e.pattern === 'charge') {
+            e.ax = Math.cos(ang); e.ay = Math.sin(ang); // mira ate o fim
+            // Indicador de investida: linha de perigo na direcao travada
+            if (this.threatFx) {
+              const lx = ex + e.ax * 170, ly = ey + e.ay * 170;
+              this.threatFx.lineStyle(4, 0xff5577, 0.28 + Math.sin(time * 0.018) * 0.1);
+              this.threatFx.lineBetween(ex, ey, lx, ly);
+              this.threatFx.fillStyle(0xff3355, 0.18);
+              this.threatFx.fillCircle(lx, ly, 14);
+            }
+          } else if (this.threatFx) {
+            // Area do soco
+            this.threatFx.lineStyle(2, 0xff6688, 0.22 + Math.sin(time * 0.02) * 0.08);
+            this.threatFx.strokeCircle(ex, ey, 150);
+          }
           if (e.stateT <= 0) {
             e.s.setTint(e.rage ? 0xff0033 : e.tint);
             if (e.pattern === 'slam') {
@@ -736,7 +762,7 @@ class Arena extends Phaser.Scene {
               this.tweens.add({ targets: ring2, scale: 120 / 30, alpha: 0, duration: 320, onComplete: () => ring2.destroy() });
               this.cameras.main.shake(120, 0.005);
               this.sparks(ex, ey, 0xff5577, 10, 60);
-              if (d < 150) this.hurtPlayer(20);
+              if (d < 150) this.hurtPlayer(20, 'Chefe (onda de choque)');
               e.pattern = 'charge';
               e.state = 'idle'; e.stateT = cd;
             } else {
@@ -749,7 +775,7 @@ class Arena extends Phaser.Scene {
           const ds = e.rage ? 380 : 320;
           vx = e.ax * ds; vy = e.ay * ds;
           if (time - (e._dashDust || 0) > 50) { e._dashDust = time; this.dust(ex, ey, 2); }
-          if (d < 60 && !e.hitOnce) { e.hitOnce = true; this.hurtPlayer(18); this.cameras.main.shake(120, 0.006); }
+          if (d < 60 && !e.hitOnce) { e.hitOnce = true; this.hurtPlayer(18, 'Chefe (investida)'); this.cameras.main.shake(120, 0.006); }
           if (e.stateT <= 0) {
             e.pattern = 'slam';
             e.state = 'idle'; e.stateT = cd;
@@ -767,11 +793,19 @@ class Arena extends Phaser.Scene {
         } else if (e.state === 'warn') {
           e.animT += dt;
           e.s.setTint(e.animT % 0.14 < 0.07 ? 0xffffff : e.tint);
+          // Telegraph claro: anel de perigo no chao (vai investir)
+          if (this.threatFx) {
+            const pulse = 0.25 + Math.sin(time * 0.02) * 0.12;
+            this.threatFx.lineStyle(3, 0xd39bff, pulse);
+            this.threatFx.strokeCircle(ex, ey, 48 + Math.sin(time * 0.015) * 6);
+            this.threatFx.fillStyle(0xc084fc, 0.08);
+            this.threatFx.fillCircle(ex, ey, 44);
+          }
           if (e.stateT <= 0) { e.state = 'dash'; e.stateT = 0.35; e.s.clearTint(); }
           showWalk = false;
         } else if (e.state === 'dash') {
           vx = Math.cos(ang) * BK.dashSpeed; vy = Math.sin(ang) * BK.dashSpeed;
-          if (d < 60 && e.atkCd <= 0) { this.hurtPlayer(BK.stalkerDmg); e.atkCd = BK.stalkerCd; }
+          if (d < 60 && e.atkCd <= 0) { this.hurtPlayer(BK.stalkerDmg, e.elite ? 'Espreitador de elite' : 'Espreitador'); e.atkCd = BK.stalkerCd; }
           if (e.stateT <= 0 || d < 45) { e.state = 'recover'; e.stateT = 0.9; }
           showWalk = false;
         } else if (e.state === 'recover') {
