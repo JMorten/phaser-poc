@@ -173,11 +173,23 @@ class Arena extends Phaser.Scene {
     this.potions = [];
     const pg = this.add.graphics();
     pg.fillStyle(0x2ecc71, 1); pg.fillCircle(12, 12, 10);
-    pg.fillStyle(0xd5f5e3, 1); pg.fillRect(9, 5, 6, 14); pg.fillRect(4, 10, 16, 5);
+    pg.fillStyle(0xb6ffd8, 0.95); pg.fillCircle(9, 9, 4);
+    pg.fillStyle(0xd5f5e3, 1); pg.fillRect(9, 4, 6, 16); pg.fillRect(4, 9, 16, 6);
+    pg.fillStyle(0x145a32, 1); pg.fillRoundedRect(7, 1, 10, 5, 2);
     pg.generateTexture('potion', 24, 24); pg.destroy();
+    if (!this.textures.exists('potionGlow')) {
+      const tg = this.textures.createCanvas('potionGlow', 64, 64);
+      const gg = tg.context.createRadialGradient(32, 32, 2, 32, 32, 32);
+      gg.addColorStop(0, 'rgba(120,255,170,0.45)');
+      gg.addColorStop(0.5, 'rgba(60,220,120,0.18)');
+      gg.addColorStop(1, 'rgba(0,0,0,0)');
+      tg.context.fillStyle = gg; tg.context.fillRect(0, 0, 64, 64); tg.refresh();
+    }
     for (const [px, py] of [[500, 1200], [1900, 600]]) {
-      const ps = this.add.sprite(px, py, 'potion').setScale(1.2).setDepth(1);
-      this.potions.push(ps);
+      const glow = this.add.image(px, py, 'potionGlow').setDepth(0.9).setAlpha(0.75).setScale(1);
+      if (Phaser.BlendModes && Phaser.BlendModes.ADD !== undefined) glow.setBlendMode(Phaser.BlendModes.ADD);
+      const ps = this.add.sprite(px, py, 'potion').setScale(1.25).setDepth(1);
+      this.potions.push({ s: ps, glow, t: Math.random() * 1000, by: py });
     }
 
     for (let d = 0; d < 8; d++) {
@@ -451,9 +463,13 @@ class Arena extends Phaser.Scene {
         this.sparks(e.s.x, e.s.y, e.behavior === 'boss' ? 0xff4466 : 0xffe08a, e.behavior === 'boss' ? 12 : 8, e.behavior === 'boss' ? 55 : 42);
         // Flash branco de impacto (restaura o tint original; morte vira alpha).
         if (e.hp <= 0) {
-          e.s.setVelocity(0, 0); e.s.clearTint(); e.s.setAlpha(0.35);
-          this.sparks(e.s.x, e.s.y, e.tint || 0xffffff, 14, 70);
-          if (e.behavior === 'boss') this.cameras.main.flash(120, 255, 220, 180);
+          e.s.setVelocity(0, 0); e.s.clearTint();
+          if (e.s.body) e.s.body.enable = false;
+          e.barBg.setVisible(false); e.barFg.setVisible(false);
+          this.sparks(e.s.x, e.s.y, e.tint || 0xffffff, e.behavior === 'boss' ? 22 : 14, e.behavior === 'boss' ? 90 : 70);
+          this.dust(e.s.x, e.s.y, e.behavior === 'boss' ? 8 : 4);
+          this.tweens.add({ targets: e.s, alpha: 0, scale: e.behavior === 'boss' ? 0.35 : 0.3, y: e.s.y + 8, duration: e.behavior === 'boss' ? 700 : 450, ease: 'Quad.easeIn' });
+          if (e.behavior === 'boss') this.cameras.main.flash(140, 255, 220, 180);
         }
         else {
           e.s.setTint(0xffffff);
@@ -535,7 +551,14 @@ class Arena extends Phaser.Scene {
       if (e.behavior === 'chaser') {
         // Persegue em linha reta; ataca de perto.
         if (d > 55) { vx = Math.cos(ang) * BK.chaseSpeed; vy = Math.sin(ang) * BK.chaseSpeed; }
-        if (d < 75 && e.atkCd <= 0) { this.hurtPlayer(BK.chaseDmg); e.atkCd = BK.chaseCd; }
+        // Aviso sutil: brilho quando esta no alcance e pronto para golpear.
+        if (d < 90 && e.atkCd <= 0.15 && !e._wind) { e._wind = true; e.s.setTint(0xffdddd); this.time.delayedCall(120, () => { e._wind = false; if (e.hp > 0 && !e.dead) e.s.setTint(e.tint); }); }
+        if (d < 75 && e.atkCd <= 0) {
+          this.hurtPlayer(BK.chaseDmg); e.atkCd = BK.chaseCd;
+          e.s.setScale(0.58).setTint(0xffffff);
+          this.tweens.add({ targets: e.s, scale: 0.5, duration: 120, onComplete: () => { if (e.hp > 0) e.s.setTint(e.tint); } });
+          this.sparks((ex + px) / 2, (ey + py) / 2, 0xff8888, 5, 22);
+        }
       } else if (e.behavior === 'flanker') {
         // Circula o jogador: soma tangente ao vetor de perseguicao.
         if (d > 60) {
@@ -545,7 +568,13 @@ class Arena extends Phaser.Scene {
           const m = Math.hypot(vx, vy) || 1;
           vx = (vx / m) * BK.flankSpeed; vy = (vy / m) * BK.flankSpeed;
         }
-        if (d < 75 && e.atkCd <= 0) { this.hurtPlayer(BK.flankDmg); e.atkCd = BK.flankCd; }
+        if (d < 90 && e.atkCd <= 0.15 && !e._wind) { e._wind = true; e.s.setTint(0xffe0c0); this.time.delayedCall(120, () => { e._wind = false; if (e.hp > 0 && !e.dead) e.s.setTint(e.tint); }); }
+        if (d < 75 && e.atkCd <= 0) {
+          this.hurtPlayer(BK.flankDmg); e.atkCd = BK.flankCd;
+          e.s.setScale(0.58).setTint(0xffffff);
+          this.tweens.add({ targets: e.s, scale: 0.5, duration: 120, onComplete: () => { if (e.hp > 0) e.s.setTint(e.tint); } });
+          this.sparks((ex + px) / 2, (ey + py) / 2, 0xffc080, 5, 22);
+        }
       } else if (e.behavior === 'boss') {
         // Chefe: persegue; alterna SOCO (area ao redor) e INVESTIDA (dash em linha reta).
         // Abaixo de 50% de HP entra em furia: ataques mais rapidos e velozes.
@@ -639,11 +668,18 @@ class Arena extends Phaser.Scene {
 
     // Pocao: coleta por distancia (ignora o offset dos pes do corpo fisico).
     for (let i = this.potions.length - 1; i >= 0; i--) {
-      const ps = this.potions[i];
-      ps.setScale(1.2 + Math.sin(time * 0.006 + ps.x) * 0.12); // pulsacao
-      if (Phaser.Math.Distance.Between(this.player.x, this.player.y, ps.x, ps.y) < 40) {
+      const p = this.potions[i];
+      const pulse = Math.sin(time * 0.006 + p.t) * 0.12;
+      p.s.setScale(1.25 + pulse);
+      p.s.y = p.by + Math.sin(time * 0.0035 + p.t) * 4; // leve flutuacao
+      p.glow.setPosition(p.s.x, p.s.y).setAlpha(0.55 + (pulse + 0.12) * 1.1).setScale(1.1 + pulse * 0.6);
+      if (Phaser.Math.Distance.Between(this.player.x, this.player.y, p.s.x, p.s.y) < 40) {
         this.hp = Math.min(100, this.hp + POTION_HEAL);
-        ps.destroy();
+        this.floatText(p.s.x, p.s.y, `+${POTION_HEAL} HP`, '#6cff9a', 20);
+        this.sparks(p.s.x, p.s.y, 0x66ff99, 10, 45);
+        const ring = this.add.circle(p.s.x, p.s.y, 10, 0x66ff99, 0.22).setDepth(2);
+        this.tweens.add({ targets: ring, scale: 4.2, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
+        p.s.destroy(); p.glow.destroy();
         this.potions.splice(i, 1);
       }
     }
