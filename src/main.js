@@ -88,42 +88,97 @@ class Arena extends Phaser.Scene {
   }
 
   create() {
-    // Fundo: textura de chao gerada em runtime (CanvasTexture; sem PNG novo).
+    // Fundo: textura de chao gotica gerada em runtime (sem PNG novo).
     // Paleta fria/gotica inspirada em Diablo/Dark Eden.
     const ct = this.textures.createCanvas('ground', 256, 256);
     const c = ct.context;
-    c.fillStyle = '#10141b'; c.fillRect(0, 0, 256, 256);
-    for (let i = 0; i < 900; i++) { // ruido fino (granulos)
-      const a = 0.02 + Math.random() * 0.08;
-      if (Math.random() < 0.45) c.fillStyle = `rgba(120,140,170,${a})`;
-      else c.fillStyle = `rgba(0,0,0,${a + 0.04})`;
+    c.fillStyle = '#0e1218'; c.fillRect(0, 0, 256, 256);
+    // Lajotas irregulares sutis
+    c.strokeStyle = 'rgba(60,70,85,0.10)'; c.lineWidth = 1;
+    for (let x = 0; x < 256; x += 64) for (let y = 0; y < 256; y += 64) {
+      c.strokeRect(x + (Math.random()*6-3), y + (Math.random()*6-3), 64, 64);
+    }
+    for (let i = 0; i < 1100; i++) { // ruido fino (granulos)
+      const a = 0.015 + Math.random() * 0.09;
+      c.fillStyle = Math.random() < 0.42 ? `rgba(130,150,175,${a})` : `rgba(0,0,0,${a + 0.05})`;
       c.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
     }
-    for (let i = 0; i < 40; i++) { // mottling amplo (variacao tonal)
-      const r = 20 + Math.random() * 40;
-      c.fillStyle = `rgba(70,90,120,${Math.random() * 0.035})`;
+    for (let i = 0; i < 55; i++) { // manchas / variacao tonal
+      const r = 16 + Math.random() * 46;
+      c.fillStyle = `rgba(55,75,105,${Math.random() * 0.045})`;
       c.beginPath(); c.arc(Math.random() * 256, Math.random() * 256, r, 0, Math.PI * 2); c.fill();
     }
+    // Rachaduras
+    c.strokeStyle = 'rgba(5,8,12,0.22)'; c.lineWidth = 1;
+    for (let i = 0; i < 7; i++) {
+      let x = Math.random() * 256, y = Math.random() * 256;
+      c.beginPath(); c.moveTo(x, y);
+      for (let j = 0; j < 4; j++) { x += (Math.random()-0.5)*50; y += (Math.random()-0.5)*50; c.lineTo(x, y); }
+      c.stroke();
+    }
+    // Marca runica sutil no tile
+    c.strokeStyle = 'rgba(90,120,160,0.08)'; c.lineWidth = 2;
+    c.beginPath(); c.arc(128, 128, 34, 0, Math.PI * 2); c.stroke();
+    c.beginPath(); c.moveTo(128, 94); c.lineTo(128, 162); c.moveTo(94, 128); c.lineTo(162, 128); c.stroke();
     ct.refresh();
     this.add.tileSprite(0, 0, WORLD_W, WORLD_H, 'ground').setOrigin(0).setDepth(0);
 
-    // Pedras decorativas (sem colisao; textura do chao via elipses)
-    for (let i = 0; i < 36; i++) {
+    // Pedras decorativas (sem colisao)
+    for (let i = 0; i < 42; i++) {
       const sx = 60 + Math.random() * (WORLD_W - 120), sy = 60 + Math.random() * (WORLD_H - 120);
-      const sw = 18 + Math.random() * 34, sh = 8 + Math.random() * 12;
-      this.add.ellipse(sx, sy, sw, sh, 0x202833, 0.6).setDepth(0);
-      this.add.ellipse(sx - sw * 0.12, sy - sh * 0.18, sw * 0.6, sh * 0.45, 0x2c3644, 0.55).setDepth(0);
+      const sw = 16 + Math.random() * 38, sh = 7 + Math.random() * 14;
+      this.add.ellipse(sx, sy, sw, sh, 0x1d2430, 0.65).setDepth(0);
+      this.add.ellipse(sx - sw * 0.12, sy - sh * 0.18, sw * 0.58, sh * 0.42, 0x2a3442, 0.5).setDepth(0);
     }
 
     // Sombras dinamicas (abaixo dos personagens; redesenhadas a cada quadro)
     this.shadowFx = this.add.graphics().setDepth(0.5);
 
-    // Blocos de pedra colidiveis (bloqueiam jogador e inimigos). Fora das areas de spawn/pocao.
+    // Blocos de pedra colidiveis (ruinas goticas). Mesma colisao/tamanho.
     this.blocks = this.physics.add.staticGroup();
     for (const [bx, by, bw, bh] of OBSTACLES) {
-      const r = this.add.rectangle(bx, by, bw, bh, 0x3a4450).setDepth(1).setStrokeStyle(3, 0x222a33);
+      const r = this.add.rectangle(bx, by, bw, bh, 0x303846).setDepth(1).setStrokeStyle(2, 0x1a2028);
       this.physics.add.existing(r, true);
       this.blocks.add(r);
+      // Detalhes visuais (sem colisao)
+      this.add.rectangle(bx, by - bh * 0.08, bw - 6, bh * 0.28, 0x3e4858, 0.45).setDepth(1.01);
+      this.add.rectangle(bx - bw * 0.02, by + bh * 0.18, bw * 0.9, 3, 0x161b22, 0.35).setDepth(1.01);
+      const gx = this.add.graphics().setDepth(1.02);
+      gx.lineStyle(1, 0x4a5568, 0.25);
+      gx.strokeRect(bx - bw/2 + 5, by - bh/2 + 5, bw - 10, bh - 10);
+      gx.lineStyle(1, 0x10141b, 0.2);
+      gx.lineBetween(bx - bw*0.2, by - bh/2 + 4, bx - bw*0.05, by + bh/2 - 4);
+    }
+
+    // Props decorativos goticos (sem colisao), posicionados longe de spawns/pocoes/centro.
+    const props = [
+      [980, 980, 'rune'], [1450, 1250, 'rune'], [620, 1380, 'rune'], [2020, 520, 'bones'],
+      [260, 220, 'pillar'], [2140, 1500, 'pillar'], [860, 260, 'broken'], [1650, 1550, 'broken'],
+      [1180, 620, 'bones'], [340, 1550, 'rune'], [1980, 1280, 'bones']
+    ];
+    for (const [px, py, kind] of props) {
+      if (kind === 'rune') {
+        const ring = this.add.circle(px, py, 26, 0x000000, 0).setStrokeStyle(2, 0x6688aa, 0.22).setDepth(0.4);
+        this.add.circle(px, py, 14, 0x000000, 0).setStrokeStyle(1, 0x88aacc, 0.18).setDepth(0.4);
+        this.add.rectangle(px, py, 2, 34, 0x7799bb, 0.12).setDepth(0.4);
+        this.add.rectangle(px, py, 34, 2, 0x7799bb, 0.12).setDepth(0.4);
+        const gl = this.add.circle(px, py, 34, 0x446688, 0.05).setDepth(0.35);
+        this.tweens.add({ targets: [ring, gl], alpha: { from: ring.alpha || 1, to: 0.55 }, duration: 1800 + Math.random()*1200, yoyo: true, repeat: -1 });
+      } else if (kind === 'pillar') {
+        this.add.ellipse(px, py + 10, 34, 12, 0x141922, 0.45).setDepth(0.4);
+        this.add.rectangle(px, py - 8, 22, 44, 0x3a4250).setDepth(0.9).setStrokeStyle(2, 0x202630);
+        this.add.rectangle(px, py - 26, 28, 10, 0x454e5c).setDepth(0.91).setStrokeStyle(1, 0x222834);
+        this.add.rectangle(px - 4, py - 8, 4, 40, 0x4a5566, 0.35).setDepth(0.92);
+      } else if (kind === 'broken') {
+        this.add.ellipse(px, py + 6, 28, 10, 0x141922, 0.4).setDepth(0.4);
+        this.add.rectangle(px - 2, py, 18, 22, 0x353d4a).setDepth(0.9).setStrokeStyle(2, 0x1e2430).setRotation(0.08);
+        this.add.rectangle(px + 12, py + 8, 14, 8, 0x2f3744).setDepth(0.9).setRotation(-0.2);
+      } else if (kind === 'bones') {
+        this.add.ellipse(px, py, 22, 8, 0x151a22, 0.35).setDepth(0.4);
+        this.add.ellipse(px - 4, py - 2, 7, 5, 0x8a8578, 0.55).setDepth(0.45);
+        this.add.rectangle(px + 4, py, 12, 3, 0x7d786c, 0.5).setDepth(0.45).setRotation(0.4);
+        this.add.rectangle(px + 2, py + 3, 10, 2, 0x746f64, 0.45).setDepth(0.45).setRotation(-0.6);
+      }
     }
 
     this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
