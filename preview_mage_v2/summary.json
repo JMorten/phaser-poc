@@ -1,0 +1,174 @@
+{
+ "frames": 24,
+ "seconds": 3.6,
+ "renders": [
+  {
+   "file": "walk_dir0_f0.png",
+   "anim": "walk",
+   "dir": 0,
+   "frame": 0,
+   "render_s": 0.386
+  },
+  {
+   "file": "attack_dir0_f1.png",
+   "anim": "attack",
+   "dir": 0,
+   "frame": 1,
+   "render_s": 0.163
+  },
+  {
+   "file": "dodge_dir0_f1.png",
+   "anim": "dodge",
+   "dir": 0,
+   "frame": 1,
+   "render_s": 0.158
+  },
+  {
+   "file": "walk_dir1_f0.png",
+   "anim": "walk",
+   "dir": 1,
+   "frame": 0,
+   "render_s": 0.137
+  },
+  {
+   "file": "attack_dir1_f1.png",
+   "anim": "attack",
+   "dir": 1,
+   "frame": 1,
+   "render_s": 0.165
+  },
+  {
+   "file": "dodge_dir1_f1.png",
+   "anim": "dodge",
+   "dir": 1,
+   "frame": 1,
+   "render_s": 0.15
+  },
+  {
+   "file": "walk_dir2_f0.png",
+   "anim": "walk",
+   "dir": 2,
+   "frame": 0,
+   "render_s": 0.128
+  },
+  {
+   "file": "attack_dir2_f1.png",
+   "anim": "attack",
+   "dir": 2,
+   "frame": 1,
+   "render_s": 0.134
+  },
+  {
+   "file": "dodge_dir2_f1.png",
+   "anim": "dodge",
+   "dir": 2,
+   "frame": 1,
+   "render_s": 0.123
+  },
+  {
+   "file": "walk_dir3_f0.png",
+   "anim": "walk",
+   "dir": 3,
+   "frame": 0,
+   "render_s": 0.138
+  },
+  {
+   "file": "attack_dir3_f1.png",
+   "anim": "attack",
+   "dir": 3,
+   "frame": 1,
+   "render_s": 0.142
+  },
+  {
+   "file": "dodge_dir3_f1.png",
+   "anim": "dodge",
+   "dir": 3,
+   "frame": 1,
+   "render_s": 0.142
+  },
+  {
+   "file": "walk_dir4_f0.png",
+   "anim": "walk",
+   "dir": 4,
+   "frame": 0,
+   "render_s": 0.136
+  },
+  {
+   "file": "attack_dir4_f1.png",
+   "anim": "attack",
+   "dir": 4,
+   "frame": 1,
+   "render_s": 0.12
+  },
+  {
+   "file": "dodge_dir4_f1.png",
+   "anim": "dodge",
+   "dir": 4,
+   "frame": 1,
+   "render_s": 0.124
+  },
+  {
+   "file": "walk_dir5_f0.png",
+   "anim": "walk",
+   "dir": 5,
+   "frame": 0,
+   "render_s": 0.135
+  },
+  {
+   "file": "attack_dir5_f1.png",
+   "anim": "attack",
+   "dir": 5,
+   "frame": 1,
+   "render_s": 0.131
+  },
+  {
+   "file": "dodge_dir5_f1.png",
+   "anim": "dodge",
+   "dir": 5,
+   "frame": 1,
+   "render_s": 0.134
+  },
+  {
+   "file": "walk_dir6_f0.png",
+   "anim": "walk",
+   "dir": 6,
+   "frame": 0,
+   "render_s": 0.119
+  },
+  {
+   "file": "attack_dir6_f1.png",
+   "anim": "attack",
+   "dir": 6,
+   "frame": 1,
+   "render_s": 0.128
+  },
+  {
+   "file": "dodge_dir6_f1.png",
+   "anim": "dodge",
+   "dir": 6,
+   "frame": 1,
+   "render_s": 0.122
+  },
+  {
+   "file": "walk_dir7_f0.png",
+   "anim": "walk",
+   "dir": 7,
+   "frame": 0,
+   "render_s": 0.136
+  },
+  {
+   "file": "attack_dir7_f1.png",
+   "anim": "attack",
+   "dir": 7,
+   "frame": 1,
+   "render_s": 0.152
+  },
+  {
+   "file": "dodge_dir7_f1.png",
+   "anim": "dodge",
+   "dir": 7,
+   "frame": 1,
+   "render_s": 0.148
+  }
+ ]
+}
